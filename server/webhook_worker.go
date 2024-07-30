@@ -63,6 +63,11 @@ func (ww webhookWorker) process(msg *webhookMessage) (err error) {
 
 	botUserID := ww.p.getUserID()
 	for _, channelSubscribed := range channelsSubscribed {
+		// Костыль, нужен для фильтра старых подписок
+		if channelSubscribed.MattermostUserID == "" {
+			continue
+		}
+
 		c, err2 := ww.p.userStore.LoadConnection(msg.InstanceID, types.ID(channelSubscribed.MattermostUserID))
 		if err2 == nil {
 			if v.User.Self == c.Self {
