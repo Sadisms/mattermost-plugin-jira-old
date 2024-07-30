@@ -962,11 +962,37 @@ type InTransitionIssue struct {
 	PostToChannelID  string   `json:"channel_id"`
 	IssueKey         string   `json:"issue_key"`
 	ToState          string   `json:"to_state"`
-	RootPostID       string   `json:"root_post_id"`
+}
+
+func (p *Plugin) createNotificationPost(postToChannelID string, mattermostUserID string, msg string, conn *Connection, rootPostID string) error {
+	post := makePost(p.getUserID(), postToChannelID, msg)
+
+	settings := conn.Settings
+
+	if settings.DisplayHiddenMessages && postToChannelID != "" {
+		post.RootId = rootPostID
+		userInfo, errUserInfo := p.client.User.Get(mattermostUserID)
+		if errUserInfo != nil {
+			return errUserInfo
+		}
+
+		post.Message = fmt.Sprintf("@%s %s", userInfo.Username, post.Message)
+
+		errPost := p.client.Post.CreatePost(post)
+		if errPost != nil {
+			return errPost
+		}
+
+		return nil
+	}
+
+	p.client.Post.SendEphemeralPost(mattermostUserID, post)
+
+	return nil
 }
 
 func (p *Plugin) TransitionIssue(in *InTransitionIssue) (string, error) {
-	client, instance, conn, err := p.getClient(in.InstanceID, in.mattermostUserID)
+	client, instance, _, err := p.getClient(in.InstanceID, in.mattermostUserID)
 	if err != nil {
 		return "", err
 	}
@@ -1014,7 +1040,7 @@ func (p *Plugin) TransitionIssue(in *InTransitionIssue) (string, error) {
 	msg := fmt.Sprintf("[%s](%v/browse/%v) transitioned to `%s`",
 		in.IssueKey, instance.GetJiraBaseURL(), in.IssueKey, transition.To.Name)
 
-	issue, err := client.GetIssue(in.IssueKey, nil)
+	_, err = client.GetIssue(in.IssueKey, nil)
 	if err != nil {
 		switch StatusCode(err) {
 		case http.StatusNotFound:
@@ -1026,27 +1052,6 @@ func (p *Plugin) TransitionIssue(in *InTransitionIssue) (string, error) {
 		default:
 			return "", errors.WithMessage(err, "request to Jira failed")
 		}
-	}
-
-	settings := conn.Settings
-
-	attachments, err := asSlackAttachment(instance, client, issue, true)
-	if err != nil {
-		return "", err
-	}
-
-	post := makePost(p.getUserID(), in.PostToChannelID, msg)
-	post.AddProp("attachments", attachments)
-
-	post.RootId = in.RootPostID
-
-	if settings.DisplayHiddenMessages {
-		errPost := p.client.Post.CreatePost(post)
-		if errPost != nil {
-			return "", err
-		}
-	} else {
-		p.client.Post.SendEphemeralPost(in.mattermostUserID.String(), post)
 	}
 
 	return msg, nil

@@ -923,6 +923,14 @@ func executeAssign(p *Plugin, c *plugin.Context, header *model.CommandArgs, args
 		return p.responsef(header, "%v", err)
 	}
 
+	_, _, conn, err := p.getClient(instance.GetID(), types.ID(header.UserId))
+	if err == nil {
+		errNotification := p.createNotificationPost(header.ChannelId, header.UserId, msg, conn, header.RootId)
+		if errNotification == nil {
+			return &model.CommandResponse{}
+		}
+	}
+
 	return p.responsef(header, msg)
 }
 
@@ -949,10 +957,17 @@ func executeTransition(p *Plugin, c *plugin.Context, header *model.CommandArgs, 
 		mattermostUserID: mattermostUserID,
 		IssueKey:         issueKey,
 		ToState:          toState,
-		RootPostID:       header.RootId,
 	})
 	if err != nil {
 		return p.responsef(header, err.Error())
+	}
+
+	_, _, conn, err := p.getClient(instanceID, types.ID(header.UserId))
+	if err == nil {
+		errNotification := p.createNotificationPost(header.ChannelId, header.UserId, msg, conn, header.RootId)
+		if errNotification == nil {
+			return &model.CommandResponse{}
+		}
 	}
 
 	return p.responsef(header, msg)
