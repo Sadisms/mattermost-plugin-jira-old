@@ -887,14 +887,14 @@ func (p *Plugin) AssignIssue(instance Instance, mattermostUserID types.ID, issue
 	// required minimum of three letters in assignee value
 	if len(userSearch) < MinUserSearchQueryLength {
 		errorMsg := fmt.Sprintf("`%s` contains less than %v characters.", userSearch, MinUserSearchQueryLength)
-		return errorMsg, nil
+		return "", fmt.Errorf(errorMsg)
 	}
 
 	// check for valid issue key
 	_, err = client.GetIssue(issueKey, nil)
 	if err != nil {
 		errorMsg := fmt.Sprintf("We couldn't find the issue key `%s`.  Please confirm the issue key and try again.", issueKey)
-		return errorMsg, nil
+		return "", fmt.Errorf(errorMsg)
 	}
 
 	// Get list of assignable users
@@ -904,7 +904,8 @@ func (p *Plugin) AssignIssue(instance Instance, mattermostUserID types.ID, issue
 	} else {
 		jiraUsers, err = client.SearchUsersAssignableToIssue(issueKey, userSearch, 10)
 		if StatusCode(err) == http.StatusUnauthorized {
-			return "You do not have the appropriate permissions to perform this action. Please contact your Jira administrator.", nil
+			errorMsg := "You do not have the appropriate permissions to perform this action. Please contact your Jira administrator."
+			return "", fmt.Errorf(errorMsg)
 		}
 		if err != nil {
 			return "", err

@@ -163,6 +163,8 @@ func addSubCommands(jira *model.AutocompleteData, optInstance bool) {
 
 	jira.AddCommand(createConnectCommand())
 	jira.AddCommand(createDisconnectCommand())
+
+	jira.AddCommand(createSettingsCommand(optInstance))
 }
 
 func createInstanceCommand(optInstance bool) *model.AutocompleteData {
@@ -257,7 +259,7 @@ func createDisconnectCommand() *model.AutocompleteData {
 
 func createSettingsCommand(optInstance bool) *model.AutocompleteData {
 	settings := model.NewAutocompleteData(
-		"settings", "[list|notifications]", "View or update your user settings")
+		"settings", "[list|notifications|display_messages]", "View or update your user settings")
 
 	list := model.NewAutocompleteData(
 		"list", "", "View your current settings")
@@ -271,6 +273,14 @@ func createSettingsCommand(optInstance bool) *model.AutocompleteData {
 	})
 	withFlagInstance(notifications, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	settings.AddCommand(notifications)
+
+	displayHiddenMessages := model.NewAutocompleteData(
+		"display_messages", "[on|off]", "Update setting on displaying changes in tasks for everyone")
+	displayHiddenMessages.AddStaticListArgument("value", true, []model.AutocompleteListItem{
+		{HelpText: "Turn displaying on", Item: "on"},
+		{HelpText: "Turn displaying off", Item: "off"},
+	})
+	settings.AddCommand(displayHiddenMessages)
 
 	return settings
 }
@@ -286,9 +296,10 @@ func createViewCommand(optInstance bool) *model.AutocompleteData {
 func createTransitionCommand(optInstance bool) *model.AutocompleteData {
 	transition := model.NewAutocompleteData(
 		"transition", "[Jira issue] [To state]", "Change the state of a Jira issue")
-	withParamIssueKey(transition)
-	// TODO: Implement dynamic transition autocomplete
-	transition.AddTextArgument("To state", "", "")
+
+	transition.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
+	transition.AddDynamicListArgument("To state", makeAutocompleteRoute(routeIssueTransitions), false)
+
 	withFlagInstance(transition, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return transition
 }
@@ -296,8 +307,9 @@ func createTransitionCommand(optInstance bool) *model.AutocompleteData {
 func createAssignCommand(optInstance bool) *model.AutocompleteData {
 	assign := model.NewAutocompleteData(
 		"assign", "[Jira issue] [user]", "Change the assignee of a Jira issue")
-	withParamIssueKey(assign)
-	// TODO: Implement dynamic Jira user search autocomplete
+
+	assign.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
+
 	assign.AddTextArgument("User", "", "")
 	withFlagInstance(assign, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return assign
@@ -306,7 +318,7 @@ func createAssignCommand(optInstance bool) *model.AutocompleteData {
 func createUnassignCommand(optInstance bool) *model.AutocompleteData {
 	unassign := model.NewAutocompleteData(
 		"unassign", "[Jira issue]", "Unassign a Jira issue")
-	withParamIssueKey(unassign)
+	unassign.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
 	withFlagInstance(unassign, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return unassign
 }
@@ -601,7 +613,7 @@ func executeSettings(p *Plugin, c *plugin.Context, header *model.CommandArgs, ar
 		return p.responsef(header, "Current settings:\n%s", conn.Settings.String())
 	case "notifications":
 		return p.settingsNotifications(header, instance.GetID(), user.MattermostUserID, conn, args)
-	case "displayHiddenMessages":
+	case "display_messages":
 		return p.settingsDisplayHiddenMessages(header, instance.GetID(), user.MattermostUserID, conn, args)
 	default:
 		return p.responsef(header, "Unknown setting.")
@@ -896,6 +908,15 @@ func executeUnassign(p *Plugin, c *plugin.Context, header *model.CommandArgs, ar
 	if err != nil {
 		return p.responsef(header, "%v", err)
 	}
+
+	_, _, conn, err := p.getClient(instance.GetID(), types.ID(header.UserId))
+	if err == nil {
+		errNotification := p.createNotificationPost(header.ChannelId, header.UserId, msg, conn, header.RootId)
+		if errNotification == nil {
+			return &model.CommandResponse{}
+		}
+	}
+
 	return p.responsef(header, msg)
 }
 

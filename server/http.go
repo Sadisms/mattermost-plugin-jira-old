@@ -5,7 +5,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/mattermost/mattermost/server/public/model"
 	htmlTemplate "html/template"
+	"regexp"
 	textTemplate "text/template"
 
 	"net/http"
@@ -64,6 +67,9 @@ const (
 	routeOAuth2Complete                         = "/oauth2/complete.html"
 
 	routeGetAllSubscriptions = "/all-subscriptions"
+
+	routeParseIssuesInPost = "/parse-issues-in-post"
+	routeIssueTransitions  = "/issue-transitions"
 )
 
 const routePrefixInstance = "instance"
@@ -154,6 +160,9 @@ func (p *Plugin) initializeRouter() {
 	apiRouter.HandleFunc(routeAPISubscriptionsChannelWithID, p.checkAuth(p.handleResponse(p.httpChannelDeleteSubscription))).Methods(http.MethodDelete)
 
 	p.router.HandleFunc(routeGetAllSubscriptions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.getAllSubscriptions)))).Methods(http.MethodGet)
+
+	autocompleteRouter.HandleFunc(routeParseIssuesInPost, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpParseIssuesInPost)))).Methods(http.MethodGet)
+	autocompleteRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpIssueTransitions)))).Methods(http.MethodGet)
 }
 
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
@@ -382,4 +391,95 @@ func (p *Plugin) getAllSubscriptions(w http.ResponseWriter, r *http.Request) (in
 	}
 
 	return respondJSON(w, subs)
+}
+
+func validateQueryKey(r *http.Request, key string) (string, error) {
+	value := r.URL.Query().Get(key)
+	if value == "" {
+		return "", errors.New("Not found " + key)
+	}
+
+	return value, nil
+}
+
+func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (int, error) {
+	rootID, errRootID := validateQueryKey(r, "root_id")
+	if errRootID != nil {
+		return respondErr(w, http.StatusInternalServerError, errRootID)
+	}
+
+	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
+	info, err := p.GetUserInfo(mattermostUserID, nil)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	post, errPost := p.client.Post.GetPost(rootID)
+	if errPost != nil {
+		return respondErr(w, http.StatusInternalServerError, errPost)
+	}
+
+	var keys []model.AutocompleteListItem
+	for _, instanceID := range info.Instances.IDs() {
+		urlBrowse := instanceID.String() + "/browse/"
+		re := regexp.MustCompile(`\Q` + urlBrowse + `\E([a-zA-Z0-9-_]+)`)
+		for _, match := range re.FindAllStringSubmatch(post.Message, -1) {
+			if len(match) > 1 {
+				keys = append(keys, model.AutocompleteListItem{
+					Item: match[1],
+				})
+			}
+		}
+	}
+
+	return respondJSON(w, keys)
+}
+
+func (p *Plugin) httpIssueTransitions(w http.ResponseWriter, r *http.Request) (int, error) {
+	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
+
+	userInput, errRootID := validateQueryKey(r, "user_input")
+	if errRootID != nil {
+		return respondErr(w, http.StatusInternalServerError, errRootID)
+	}
+
+	args := strings.Split(userInput, " ")
+	if len(args) < 3 {
+		return respondErr(w, http.StatusInternalServerError, errors.New("Failed parse command"))
+	}
+
+	issueKey := strings.ToUpper(args[2])
+
+	instanceURL, _, err := p.parseCommandFlagInstanceURL(args)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, fmt.Errorf("failed to load your connection to Jira. Error: %v", err))
+	}
+
+	_, instanceID, err := p.ResolveUserInstanceURL(mattermostUserID, instanceURL)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, fmt.Errorf("failed to identify Jira instance %s. Error: %v", instanceURL, err))
+	}
+
+	client, _, _, err := p.getClient(instanceID, mattermostUserID)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, fmt.Errorf("failed load client %s. Error: %v", instanceURL, err))
+	}
+
+	transitions, err := client.GetTransitions(issueKey)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, errors.New("we couldn't find the issue key. Please confirm the issue key and try again. You may not have permissions to access this issue"))
+	}
+	if len(transitions) < 1 {
+		return respondErr(w, http.StatusInternalServerError, errors.New("you do not have the appropriate permissions to perform this action. Please contact your Jira administrator"))
+	}
+
+	var out []model.AutocompleteListItem
+
+	for _, trans := range transitions {
+		out = append(out, model.AutocompleteListItem{
+			Item: trans.To.Name,
+		})
+	}
+
+	return respondJSON(w, out)
 }
