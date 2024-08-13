@@ -30,12 +30,17 @@ func reporterSummary(issue *jira.Issue) string {
 	return reporterSummary
 }
 
-func getActions(instanceID types.ID, client Client, issue *jira.Issue) ([]*model.PostAction, error) {
+func getActions(instanceID types.ID, client Client, issue *jira.Issue, otherInfo ...string) ([]*model.PostAction, error) {
 	var actions []*model.PostAction
 
 	ctx := map[string]interface{}{
 		"issue_key":   issue.ID,
 		"instance_id": instanceID.String(),
+	}
+
+	// Если передали post_id
+	if len(otherInfo) == 1 {
+		ctx["post_id"] = otherInfo[0]
 	}
 
 	integration := &model.PostActionIntegration{
@@ -79,7 +84,7 @@ func getActions(instanceID types.ID, client Client, issue *jira.Issue) ([]*model
 	return actions, nil
 }
 
-func asSlackAttachment(instance Instance, client Client, issue *jira.Issue, showActions bool) ([]*model.SlackAttachment, error) {
+func asSlackAttachment(instance Instance, client Client, issue *jira.Issue, showActions bool, otherInfo ...string) ([]*model.SlackAttachment, error) {
 	text := mdKeySummaryLink(issue, instance)
 	desc := truncate(issue.Fields.Description, 3000)
 	desc = parseJiraLinksToMarkdown(desc)
@@ -112,10 +117,16 @@ func asSlackAttachment(instance Instance, client Client, issue *jira.Issue, show
 	var actions []*model.PostAction
 	var err error
 	if showActions {
-		actions, err = getActions(instance.GetID(), client, issue)
+		actions, err = getActions(instance.GetID(), client, issue, otherInfo...)
 		if err != nil {
 			return []*model.SlackAttachment{}, err
 		}
+	} else {
+		fields = append(fields, &model.SlackAttachmentField{
+			Title: "Status",
+			Value: issue.Fields.Status.Name,
+			Short: true,
+		})
 	}
 
 	return []*model.SlackAttachment{

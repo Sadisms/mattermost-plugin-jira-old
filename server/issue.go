@@ -77,6 +77,13 @@ func (p *Plugin) httpShareIssuePublicly(w http.ResponseWriter, r *http.Request) 
 			"No instance id was found in context data"), w, http.StatusInternalServerError)
 	}
 
+	val = requestData.Context["post_id"]
+	postID, ok := val.(string)
+	if !ok {
+		return p.respondErrWithFeedback(mattermostUserID, makePost(jiraBotID, channelID,
+			"No post id id was found in context data"), w, http.StatusInternalServerError)
+	}
+
 	_, instance, connection, err := p.getClient(types.ID(instanceID), types.ID(mattermostUserID))
 	if err != nil {
 		return p.respondErrWithFeedback(mattermostUserID, makePost(jiraBotID, channelID,
@@ -92,6 +99,7 @@ func (p *Plugin) httpShareIssuePublicly(w http.ResponseWriter, r *http.Request) 
 	post := &model.Post{
 		UserId:    mattermostUserID,
 		ChannelId: channelID,
+		RootId:    postID,
 	}
 	post.AddProp("attachments", attachment)
 
@@ -820,7 +828,7 @@ func getIssueFieldValue(issue *jira.Issue, key string) StringSet {
 	return NewStringSet()
 }
 
-func (p *Plugin) getIssueAsSlackAttachment(instance Instance, connection *Connection, issueKey string, showActions bool) ([]*model.SlackAttachment, error) {
+func (p *Plugin) getIssueAsSlackAttachment(instance Instance, connection *Connection, issueKey string, showActions bool, otherInfo ...string) ([]*model.SlackAttachment, error) {
 	client, err := instance.GetClient(connection)
 	if err != nil {
 		return nil, err
@@ -840,7 +848,7 @@ func (p *Plugin) getIssueAsSlackAttachment(instance Instance, connection *Connec
 		}
 	}
 
-	return asSlackAttachment(instance, client, issue, showActions)
+	return asSlackAttachment(instance, client, issue, showActions, otherInfo...)
 }
 
 func (p *Plugin) UnassignIssue(instance Instance, mattermostUserID types.ID, issueKey string) (string, error) {
@@ -1110,4 +1118,63 @@ func (p *Plugin) GetIssueByKey(instanceID, mattermostUserID types.ID, issueKey s
 		}
 	}
 	return issue, nil
+}
+
+type UpdateIssue struct {
+	InstanceID string `json:"instance_id"`
+	IssueKey   string `json:"issue_key"`
+	Assignee   string `json:"assignee"`
+	Transition string `json:"transition"`
+}
+
+func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, error) {
+	mattermostUserID := r.Header.Get(HeaderMattermostUserID)
+	if mattermostUserID == "" {
+		return respondErr(w, http.StatusUnauthorized, errors.New("not authorized"))
+	}
+
+	var data UpdateIssue
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		return respondErr(w, http.StatusBadRequest,
+			errors.WithMessage(err, "failed to decode incoming request"))
+	}
+
+	if data.InstanceID == "" {
+		return respondErr(w, http.StatusBadRequest, errors.New("instance_id must not be empty"))
+	}
+
+	if data.IssueKey == "" {
+		return respondErr(w, http.StatusBadRequest, errors.New("issue_key must not be empty"))
+	}
+
+	if data.Transition == "" && data.Assignee == "" {
+		return respondErr(w, http.StatusBadRequest, errors.New("Issue fields must not be empty"))
+	}
+
+	_, instance, _, errIn := p.getClient(types.ID(data.InstanceID), types.ID(mattermostUserID))
+	if errIn != nil {
+		return respondErr(w, http.StatusBadRequest, errors.WithMessage(errIn, "failed load instance"))
+	}
+
+	if data.Assignee != "" {
+		_, errAssignee := p.AssignIssue(instance, types.ID(mattermostUserID), data.IssueKey, data.Assignee, nil)
+		if errAssignee != nil {
+			return respondErr(w, http.StatusBadRequest, errors.WithMessage(errAssignee, "failed update assignee"))
+		}
+	}
+
+	if data.Transition != "" {
+		_, errTransition := p.TransitionIssue(&InTransitionIssue{
+			InstanceID:       types.ID(data.InstanceID),
+			mattermostUserID: types.ID(mattermostUserID),
+			IssueKey:         data.IssueKey,
+			ToState:          data.Assignee,
+		})
+		if errTransition != nil {
+			return respondErr(w, http.StatusBadRequest, errors.WithMessage(errTransition, "failed update transition"))
+		}
+	}
+
+	return respondJSON(w, []string{"ok"})
 }
