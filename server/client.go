@@ -44,6 +44,7 @@ type Client interface {
 type RESTService interface {
 	RESTGet(endpoint string, params map[string]string, dest interface{}) error
 	RESTPostAttachment(issueID string, data io.Reader, name string) (*jira.Attachment, error)
+	createWorkLog(issueID string, record *jira.WorklogRecord) (*jira.WorklogRecord, *jira.Response, error)
 }
 
 // UserService is the interface for user-related APIs.

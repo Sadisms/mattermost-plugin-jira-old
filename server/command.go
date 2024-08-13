@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	jira "github.com/andygrunwald/go-jira"
@@ -56,6 +57,8 @@ var jiraCommandHandler = CommandHandler{
 		"v2revert":                     executeV2Revert,
 		"webhook":                      executeWebhookURL,
 		"setup":                        executeSetup,
+		"worklog":                      executeWorkLog,
+		"issue/worklog":                executeWorkLog,
 	},
 	defaultHandler: executeJiraDefault,
 }
@@ -70,6 +73,7 @@ const commonHelpText = "\n" +
 	"* `/jira [issue] transition [issue-key] [state]` - Change the state of a Jira issue\n" +
 	"* `/jira [issue] unassign [issue-key]` - Unassign the Jira issue\n" +
 	"* `/jira [issue] view [issue-key]` - View the details of a specific Jira issue\n" +
+	"* `/jira [issue] worklog [issue-key] [minutes]` - Record labour costs in minutes per issue\n" +
 	"* `/jira help` - Launch the Jira plugin command line help syntax\n" +
 	"* `/jira me` - Display information about the current user\n" +
 	"* `/jira about` - Display build info\n" +
@@ -146,6 +150,7 @@ func addSubCommands(jira *model.AutocompleteData, optInstance bool) {
 	jira.AddCommand(createTransitionCommand(optInstance))
 	jira.AddCommand(createAssignCommand(optInstance))
 	jira.AddCommand(createUnassignCommand(optInstance))
+	jira.AddCommand(createWorkLogCommand(optInstance))
 
 	// Generic commands
 	jira.AddCommand(createIssueCommand(optInstance))
@@ -214,6 +219,7 @@ func createIssueCommand(optInstance bool) *model.AutocompleteData {
 	issue.AddCommand(createTransitionCommand(optInstance))
 	issue.AddCommand(createAssignCommand(optInstance))
 	issue.AddCommand(createUnassignCommand(optInstance))
+	issue.AddCommand(createWorkLogCommand(optInstance))
 	return issue
 }
 
@@ -288,7 +294,7 @@ func createSettingsCommand(optInstance bool) *model.AutocompleteData {
 func createViewCommand(optInstance bool) *model.AutocompleteData {
 	view := model.NewAutocompleteData(
 		"view", "[issue]", "Display a Jira issue")
-	withParamIssueKey(view)
+	view.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
 	withFlagInstance(view, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return view
 }
@@ -302,6 +308,17 @@ func createTransitionCommand(optInstance bool) *model.AutocompleteData {
 
 	withFlagInstance(transition, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return transition
+}
+
+func createWorkLogCommand(optInstance bool) *model.AutocompleteData {
+	workLog := model.NewAutocompleteData(
+		"worklog", "[Jira issue] [Minutes]", "Record labour costs in minutes per issue")
+
+	workLog.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
+	workLog.AddTextArgument("Minutes", "", "")
+
+	withFlagInstance(workLog, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
+	return workLog
 }
 
 func createAssignCommand(optInstance bool) *model.AutocompleteData {
@@ -643,7 +660,7 @@ func executeView(p *Plugin, c *plugin.Context, header *model.CommandArgs, args .
 		return p.responsef(header, "Your username is not connected to Jira. Please type `jira connect`.")
 	}
 
-	attachment, err := p.getIssueAsSlackAttachment(instance, conn, strings.ToUpper(issueID), true)
+	attachment, err := p.getIssueAsSlackAttachment(instance, conn, strings.ToUpper(issueID), true, header.RootId)
 	if err != nil {
 		return p.responsef(header, err.Error())
 	}
@@ -992,6 +1009,50 @@ func executeTransition(p *Plugin, c *plugin.Context, header *model.CommandArgs, 
 	}
 
 	return p.responsef(header, msg)
+}
+
+func executeWorkLog(p *Plugin, c *plugin.Context, header *model.CommandArgs, args ...string) *model.CommandResponse {
+	instanceURL, args, err := p.parseCommandFlagInstanceURL(args)
+	if err != nil {
+		return p.responsef(header, "Failed to load your connection to Jira. Error: %v.", err)
+	}
+	if len(args) < 2 {
+		return p.help(header)
+	}
+
+	issueKey := strings.ToUpper(args[0])
+	minutesStr := strings.Join(args[1:], " ")
+	minutes, err := strconv.Atoi(minutesStr)
+	if err != nil {
+		return p.responsef(header, "Minutes is not number.")
+	}
+
+	if minutes <= 0 {
+		return p.responsef(header, "Minutes less than or equal to zero.")
+	}
+
+	mattermostUserID := types.ID(header.UserId)
+
+	_, instanceID, err := p.ResolveUserInstanceURL(mattermostUserID, instanceURL)
+	if err != nil {
+		return p.responsef(header, "Failed to identify Jira instance %s. Error: %v.", instanceURL, err)
+	}
+
+	client, in, _, err := p.getClient(instanceID, types.ID(header.UserId))
+	if err != nil {
+		return p.responsef(header, "Failed load client. Error: %v.", err)
+	}
+
+	_, _, err = client.createWorkLog(issueKey, &jira.WorklogRecord{
+		TimeSpentSeconds: minutes * 60, // In seconds
+	})
+	if err != nil {
+		return p.responsef(header, "Failed create worklog. Error: %v.", err)
+	}
+
+	issueLink := fmt.Sprintf("[%s](%v/browse/%v)", issueKey, in.GetJiraBaseURL(), issueKey)
+
+	return p.responsef(header, fmt.Sprintf("A %d minute worklog for issue %s has been created.", minutes, issueLink))
 }
 
 func executeMe(p *Plugin, c *plugin.Context, header *model.CommandArgs, args ...string) *model.CommandResponse {
