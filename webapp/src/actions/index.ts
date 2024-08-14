@@ -164,6 +164,13 @@ export const searchAutoCompleteFields = (params) => {
     };
 };
 
+export const getTransitionsByIssue = (params) => {
+    return async (dispatch, getState) => {
+        const url = getPluginServerRoute(getState()) + '/api/v2/issue-transitions';
+        return doFetchWithResponse(`${url}${buildQueryString(params)}`);
+    };
+};
+
 export const searchUsers = (params) => {
     return async (dispatch, getState) => {
         const url = getPluginServerRoute(getState()) + '/api/v2/get-search-users';
@@ -517,18 +524,41 @@ export function sendEphemeralPost(message: string, channelId?: string) {
     };
 }
 
+const fetchData = async (endpoint: string, params: { [key: string]: string }, getState: () => string) => {
+    const baseUrl = getPluginServerRoute(getState());
+    const queryString = new URLSearchParams(params).toString();
+    try {
+        const response = await doFetch(`${baseUrl}/api/v2/${endpoint}?${queryString}`, { method: 'get' });
+        return { data: response };
+    } catch (error) {
+        return { error };
+    }
+};
+
+// Function to fetch issue by key
 export const fetchIssueByKey = (issueKey: string, instanceID: string) => {
     return async (dispatch, getState) => {
-        const baseUrl = getPluginServerRoute(getState());
-        let data = null;
-        const params = `issue_key=${issueKey}&instance_id=${instanceID}`;
-        try {
-            data = await doFetch(`${baseUrl}/api/v2/get-issue-by-key?${params}`, {
-                method: 'get',
-            });
-            return {data};
-        } catch (error) {
-            return {error};
-        }
+        const params = { issue_key: issueKey, instance_id: instanceID };
+        return await fetchData('get-issue-by-key', params, getState);
     };
 };
+
+
+export function updateIssue(instanceID: string, issueKey: string, transition: string) {
+    return async (dispatch, getState) => {
+        const baseUrl = getPluginServerRoute(getState());
+        try {
+            const response = await doFetch(`${baseUrl}/api/v2/update-issue`, {
+                method: 'post',
+                body: JSON.stringify({
+                    instance_id: instanceID,
+                    issue_key: issueKey,
+                    transition
+                }),
+            });
+            return { data: response };
+        } catch (error) {
+            return { error };
+        }
+    };
+}

@@ -27,7 +27,7 @@ export type TicketDataFields = {
     labels: string[];
     description: string;
     summary: string;
-    project: {avatarUrls: AvatarUrls};
+    project: {avatarUrls: AvatarUrls, key: string};
     versions: string[];
     status: {name: string};
     issuetype: {iconUrl: string};

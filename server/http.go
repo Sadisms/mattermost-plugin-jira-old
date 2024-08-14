@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/andygrunwald/go-jira"
 	"github.com/mattermost/mattermost/server/public/model"
 	htmlTemplate "html/template"
 	"regexp"
@@ -68,8 +69,12 @@ const (
 
 	routeGetAllSubscriptions = "/all-subscriptions"
 
-	routeParseIssuesInPost = "/parse-issues-in-post"
-	routeIssueTransitions  = "/issue-transitions"
+	routeParseIssuesInPost       = "/parse-issues-in-post"
+	routeCommandIssueTransitions = "/command-issue-transitions"
+
+	routeUpdateIssue = "/update-issue"
+
+	routeIssueTransitions = "/issue-transitions"
 )
 
 const routePrefixInstance = "instance"
@@ -119,6 +124,8 @@ func (p *Plugin) initializeRouter() {
 	apiRouter.HandleFunc(routeSharePublicly, p.handleResponse(p.httpShareIssuePublicly)).Methods(http.MethodPost)
 	apiRouter.HandleFunc(routeGetIssueByKey, p.handleResponse(p.httpGetIssueByKey)).Methods(http.MethodGet)
 
+	apiRouter.HandleFunc(routeUpdateIssue, p.handleResponse(p.httpUpdateIssue)).Methods(http.MethodPost)
+
 	// User APIs
 	apiRouter.HandleFunc(routeAPIUserInfo, p.checkAuth(p.handleResponse(p.httpGetUserInfo))).Methods(http.MethodGet)
 	apiRouter.HandleFunc(routeAPISettingsInfo, p.checkAuth(p.handleResponse(p.httpGetSettingsInfo))).Methods(http.MethodGet)
@@ -162,7 +169,9 @@ func (p *Plugin) initializeRouter() {
 	p.router.HandleFunc(routeGetAllSubscriptions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.getAllSubscriptions)))).Methods(http.MethodGet)
 
 	autocompleteRouter.HandleFunc(routeParseIssuesInPost, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpParseIssuesInPost)))).Methods(http.MethodGet)
-	autocompleteRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpIssueTransitions)))).Methods(http.MethodGet)
+	autocompleteRouter.HandleFunc(routeCommandIssueTransitions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpCommandIssueTransitions)))).Methods(http.MethodGet)
+
+	apiRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.handleResponse(p.httpGetIssueTransitions))).Methods(http.MethodGet)
 }
 
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
@@ -435,7 +444,24 @@ func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (
 	return respondJSON(w, keys)
 }
 
-func (p *Plugin) httpIssueTransitions(w http.ResponseWriter, r *http.Request) (int, error) {
+func (p *Plugin) getTransitions(instanceID types.ID, mattermostUserID types.ID, issueKey string) ([]jira.Transition, error) {
+	client, _, _, err := p.getClient(instanceID, mattermostUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed load client. Error: %v", err)
+	}
+
+	transitions, err := client.GetTransitions(issueKey)
+	if err != nil {
+		return nil, errors.New("we couldn't find the issue key. Please confirm the issue key and try again. You may not have permissions to access this issue")
+	}
+	if len(transitions) < 1 {
+		return nil, errors.New("you do not have the appropriate permissions to perform this action. Please contact your Jira administrator")
+	}
+
+	return transitions, nil
+}
+
+func (p *Plugin) httpCommandIssueTransitions(w http.ResponseWriter, r *http.Request) (int, error) {
 	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
 
 	userInput, errRootID := validateQueryKey(r, "user_input")
@@ -460,20 +486,12 @@ func (p *Plugin) httpIssueTransitions(w http.ResponseWriter, r *http.Request) (i
 		return respondErr(w, http.StatusInternalServerError, fmt.Errorf("failed to identify Jira instance %s. Error: %v", instanceURL, err))
 	}
 
-	client, _, _, err := p.getClient(instanceID, mattermostUserID)
-	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, fmt.Errorf("failed load client %s. Error: %v", instanceURL, err))
-	}
-
-	transitions, err := client.GetTransitions(issueKey)
-	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, errors.New("we couldn't find the issue key. Please confirm the issue key and try again. You may not have permissions to access this issue"))
-	}
-	if len(transitions) < 1 {
-		return respondErr(w, http.StatusInternalServerError, errors.New("you do not have the appropriate permissions to perform this action. Please contact your Jira administrator"))
-	}
-
 	var out []model.AutocompleteListItem
+
+	transitions, errTr := p.getTransitions(instanceID, mattermostUserID, issueKey)
+	if errTr != nil {
+		return respondErr(w, http.StatusInternalServerError, errTr)
+	}
 
 	for _, trans := range transitions {
 		out = append(out, model.AutocompleteListItem{
@@ -482,4 +500,25 @@ func (p *Plugin) httpIssueTransitions(w http.ResponseWriter, r *http.Request) (i
 	}
 
 	return respondJSON(w, out)
+}
+
+func (p *Plugin) httpGetIssueTransitions(w http.ResponseWriter, r *http.Request) (int, error) {
+	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
+
+	instanceID, err := validateQueryKey(r, "instance_id")
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	issueKey, err := validateQueryKey(r, "issue_key")
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	transitions, errTr := p.getTransitions(types.ID(instanceID), mattermostUserID, issueKey)
+	if errTr != nil {
+		return respondErr(w, http.StatusInternalServerError, errTr)
+	}
+
+	return respondJSON(w, transitions)
 }
