@@ -1,23 +1,19 @@
-import React, {ReactNode} from 'react';
-
-import {Instance} from 'types/model';
-import {TicketData, TicketDetails} from 'types/tooltip';
-import DefaultAvatar from 'components/default_avatar/default_avatar';
-
+import React, { useState, useEffect, ReactNode } from 'react';
+import { Instance } from 'types/model';
+import { TicketData, TicketDetails } from 'types/tooltip';
 import './ticketStyle.scss';
-import {getJiraTicketDetails} from 'utils/jira_issue_metadata';
+import { getJiraTicketDetails } from 'utils/jira_issue_metadata';
+import JiraTransitionSelector from "../data_selectors/jira_transition_selector";
+import DefaultAvatar from "../default_avatar/default_avatar";
 
 export type Props = {
     href: string;
     show: boolean;
     connected: boolean;
     connectedInstances: Instance[];
-    fetchIssueByKey: (issueKey: string, instanceID: string) => Promise<{data?: TicketData}>;
-}
-
-export type State = {
-    ticketId: string;
-    ticketDetails?: TicketDetails | null;
+    fetchIssueByKey: (issueKey: string, instanceID: string) => Promise<{ data?: TicketData }>;
+    fetchTransitionsByIssue: (issueKey: string, instanceID: string) => Promise<{ data?: string[] }>;
+    updateIssue: (instanceID: string, issueKey: string, transition: string) => Promise<{ data?: string[] }>;
 };
 
 const isAssignedLabel = ' is assigned';
@@ -25,48 +21,41 @@ const unAssignedLabel = 'Unassigned';
 const jiraTicketSummaryMaxLength = 80;
 const maxTicketDescriptionLength = 160;
 
-enum myStatus {
+enum MyStatus {
     INDETERMINATE = 'indeterminate',
     DONE = 'done',
 }
 
 const myStatusClasses: Record<string, string> = {
-    [myStatus.INDETERMINATE]: 'ticket-status--indeterminate',
-    [myStatus.DONE]: 'ticket-status--done',
+    [MyStatus.INDETERMINATE]: 'ticket-status--indeterminate',
+    [MyStatus.DONE]: 'ticket-status--done',
 };
 
-export default class TicketPopover extends React.PureComponent<Props, State> {
-    constructor(props: Props) {
-        super(props);
-        const issueKey = this.getIssueKey();
-        let ticketID = '';
-        if (issueKey) {
-            ticketID = issueKey.ticketID;
-        }
 
-        this.state = {
-            ticketId: ticketID,
-        };
-    }
+const TicketPopover: React.FC<Props> = (props: Props) => {
+    const [ticketId, setTicketId] = useState<string>('');
+    const [instanceId, setInstanceId] = useState<string>('');
+    const [ticketDetails, setTicketDetails] = useState<TicketDetails | null>(null);
+    const [isUpdateIssue, setIsUpdateIssue] = useState<boolean>(false);
+    const [errorFetchTransitions, setErrorFetchTransitions] = useState<boolean>(false);
 
-    getIssueKey = () => {
+    const getIssueKey = () => {
         let ticketID = '';
         let instanceID = '';
 
-        for (const instance of this.props.connectedInstances) {
+        for (const instance of props.connectedInstances) {
             instanceID = instance.instance_id;
 
-            if (!this.props.href.includes(instanceID)) {
+            if (!props.href.includes(instanceID)) {
                 continue;
             }
 
-            // We already check href.includes above in the if statement before this try block
             try {
                 const regex = /(https|http):\/\/.*\/.*\?.*selectedIssue=([\w-]+)&?.*|(https|http):\/\/.*\/browse\/([\w-]+)?.*/;
-                const result = regex.exec(this.props.href);
+                const result = regex.exec(props.href);
                 if (result) {
                     ticketID = result[2] || result[4];
-                    return {ticketID, instanceID};
+                    return { ticketID, instanceID };
                 }
                 break;
             } catch (e) {
@@ -77,27 +66,33 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
         return null;
     }
 
-    componentDidUpdate() {
-        const issueKey = this.getIssueKey();
-        if (!issueKey) {
-            return;
-        }
+    const fetchIssue = async () => {
+        const issueKey = getIssueKey();
+        if (!issueKey) return;
 
-        const {instanceID} = issueKey;
-        const {ticketId, ticketDetails} = this.state;
-        if (!ticketDetails && this.props.show && ticketId) {
-            this.props.fetchIssueByKey(this.state.ticketId, instanceID).then((res: {data?: TicketData}) => {
-                const updatedTicketDetails = getJiraTicketDetails(res.data);
-                if (this.props.connected && updatedTicketDetails && updatedTicketDetails.ticketId.toUpperCase() === ticketId.toUpperCase()) {
-                    this.setState({
-                        ticketDetails: updatedTicketDetails,
-                    });
-                }
-            });
+        const { instanceID } = issueKey;
+        if (!ticketDetails && props.show && ticketId) {
+            const res = await props.fetchIssueByKey(ticketId, instanceID);
+            const updatedTicketDetails = getJiraTicketDetails(res.data);
+            if (props.connected && updatedTicketDetails && updatedTicketDetails.ticketId.toUpperCase() === ticketId.toUpperCase()) {
+                setTicketDetails(updatedTicketDetails);
+            }
         }
     }
 
-    fixVersionLabel(fixVersion: string) {
+    useEffect(() => {
+        const issueKey = getIssueKey();
+        if (issueKey) {
+            setTicketId(issueKey.ticketID);
+            setInstanceId(issueKey.instanceID);
+        }
+    }, [props.href, props.connectedInstances]);
+
+    useEffect(() => {
+        fetchIssue();
+    }, [ticketId, props.show]);
+
+    const fixVersionLabel = (fixVersion: string) => {
         if (fixVersion) {
             const fixVersionString = 'Fix Version :';
             return (
@@ -109,11 +104,20 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
                 </div>
             );
         }
-
         return null;
     }
 
-    tagTicketStatus(ticketStatus: string) {
+    const handleUpdateIssue = async (transition: string) => {
+        setIsUpdateIssue(true);
+        try {
+            await props.updateIssue(instanceId, ticketId, transition);
+            setTicketDetails({...ticketDetails, statusKey: transition});
+        } finally {
+            setIsUpdateIssue(false);
+        }
+    }
+
+    const tagTicketStatus = (ticketStatus: string) => {
         let ticketStatusClass = 'default-style ticket-status--default';
 
         const myStatusClass = myStatusClasses[ticketStatus && ticketStatus.toLowerCase()];
@@ -124,16 +128,13 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
         return <span className={ticketStatusClass}>{ticketStatus}</span>;
     }
 
-    renderLabelList(labels: string[]) {
-        if (!labels || !labels.length) {
-            return null;
-        }
+    const renderLabelList = (labels: string[]) => {
+        if (!labels || !labels.length) return null;
 
         return (
             <div className='popover-labels__label'>
                 {
-                    labels.map((label: string, key: number): ReactNode => {
-                        // Return an element for the first three labels and if there are more than three labels, then return a combined label for the remaining labels
+                    labels.map((label, key) => {
                         if (key < 3) {
                             return (
                                 <span
@@ -141,9 +142,9 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
                                     className='popover-labels__label-list'
                                 >
                                     {label}
-                                </span>);
+                                </span>
+                            );
                         }
-
                         if (key === labels.length - 1 && labels.length > 3) {
                             return (
                                 <span
@@ -151,9 +152,9 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
                                     className='popover-labels__label-list'
                                 >
                                     {`+${labels.length - 3} more`}
-                                </span>);
+                                </span>
+                            );
                         }
-
                         return null;
                     })
                 }
@@ -161,71 +162,63 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
         );
     }
 
-    render() {
-        if (!this.state.ticketId || (!this.state.ticketDetails && !this.props.show)) {
-            return null;
-        }
+    if (!ticketId || (!ticketDetails && !props.show)) return null;
 
-        const {ticketDetails} = this.state;
-        if (!ticketDetails) {
-            // Display the spinner loader while ticket details are being fetched
-            return (
-                <div className='jira-issue-tooltip jira-issue-tooltip-loading'>
-                    <span
-                        className='jira-issue-spinner fa fa-spin fa-spinner'
-                        title={'Loading Icon'}
-                    />
-                </div>
-            );
-        }
-
+    if (!ticketDetails || isUpdateIssue) {
         return (
-            <div className='jira-issue-tooltip'>
-                <div className='popover-header'>
-                    <div className='popover-header__container'>
-                        <a
-                            href={this.props.href}
-                            className='popover-header__keyword'
-                            target='_blank'
-                            rel='noopener noreferrer'
-                        >
-                            <span className='jira-ticket-key'>{ticketDetails.ticketId}</span>
-                            <img
-                                alt='jira-issue-icon'
-                                width='14'
-                                height='14'
-                                src={ticketDetails.issueIcon}
-                            />
-                        </a>
-                    </div>
+            <div className='jira-issue-tooltip jira-issue-tooltip-loading'>
+                <span
+                    className='jira-issue-spinner fa fa-spin fa-spinner'
+                    title={'Loading Icon'}
+                />
+            </div>
+        );
+    }
+    return (
+        <div className='jira-issue-tooltip'>
+            <div className='popover-header'>
+                <div className='popover-header__container'>
+                    <a
+                        href={props.href}
+                        className='popover-header__keyword'
+                        target='_blank'
+                        rel='noopener noreferrer'
+                    >
+                        <span className='jira-ticket-key'>{ticketDetails.ticketId}</span>
+                        <img
+                            alt='jira-issue-icon'
+                            width='14'
+                            height='14'
+                            src={ticketDetails.issueIcon}
+                        />
+                    </a>
                 </div>
-                <div className='popover-body'>
-                    <div className='popover-body__title'>
-                        <a
-                            href={this.props.href}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                        >
-                            <h5>{ticketDetails.summary && ticketDetails.summary.substring(0, jiraTicketSummaryMaxLength)}</h5>
-                        </a>
-                        {this.tagTicketStatus(ticketDetails.statusKey)}
-                    </div>
-                    <div className='popover-body__description'>
-                        {ticketDetails.description && `${ticketDetails.description.substring(0, maxTicketDescriptionLength).trim()}${ticketDetails.description.length > maxTicketDescriptionLength ? '...' : ''}`}
-                    </div>
-                    <div className='popover-body__see-more-link'>
-                        <a
-                            href={this.props.href}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                        >
-                            {'See more'}
-                        </a>
-                    </div>
-                    <div className='popover-body__labels'>
-                        {this.fixVersionLabel(ticketDetails.versions)}
-                        {this.renderLabelList(ticketDetails.labels)}
-                    </div>
+            </div>
+            <div className='popover-body'>
+                <div className='popover-body__title'>
+                    <a
+                        href={props.href}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                    >
+                        <h5>{ticketDetails.summary && ticketDetails.summary.substring(0, jiraTicketSummaryMaxLength)}</h5>
+                    </a>
+                </div>
+                <div className='popover-body__description'>
+                    {ticketDetails.description && `${ticketDetails.description.substring(0, maxTicketDescriptionLength).trim()}${ticketDetails.description.length > maxTicketDescriptionLength ? '...' : ''}`}
+                </div>
+                <div className='popover-body__see-more-link'>
+                    <a
+                        href={props.href}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                    >
+                        {'See more'}
+                    </a>
+                </div>
+                <div className='popover-body__labels'>
+                    {fixVersionLabel(ticketDetails.versions)}
+                    {renderLabelList(ticketDetails.labels)}
                 </div>
                 <div className='popover-footer'>
                     {ticketDetails.assigneeAvatar ? (
@@ -234,8 +227,7 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
                             src={ticketDetails.assigneeAvatar}
                             alt='jira assignee profile'
                         />
-                    ) : <DefaultAvatar/>
-                    }
+                    ) : <DefaultAvatar />}
                     {ticketDetails.assigneeName ? (
                         <span>
                             <span className='popover-footer__assignee-name'>
@@ -249,10 +241,28 @@ export default class TicketPopover extends React.PureComponent<Props, State> {
                         <span>
                             {unAssignedLabel}
                         </span>
-                    )
+                    )}
+                </div>
+                <div className='popover-body__actions'>
+                    {
+                        errorFetchTransitions ? tagTicketStatus(ticketDetails.statusKey) :
+                            <JiraTransitionSelector
+                                label="Transition"
+                                issueKey={ticketDetails.ticketId}
+                                value={ticketDetails.statusKey}
+                                instanceID={instanceId}
+                                projectKey={ticketDetails.project.key}
+                                isMulti={false}
+                                theme={{ ...props.theme, width: "200px" }}
+                                target={null}
+                                onChange={v => handleUpdateIssue(v)}
+                                handleError={setErrorFetchTransitions}
+                            />
                     }
                 </div>
             </div>
-        );
-    }
+        </div>
+    );
 }
+
+export default TicketPopover;

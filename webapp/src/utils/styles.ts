@@ -60,6 +60,7 @@ export const getStyleForReactSelect = (theme) => {
             '&:hover': {
                 borderColor: changeOpacity(theme.centerChannelColor, 0.25),
             },
+            width: theme.width
         }),
         option: (provided, state) => ({
             ...provided,

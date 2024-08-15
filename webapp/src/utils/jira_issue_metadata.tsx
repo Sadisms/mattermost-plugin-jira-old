@@ -445,6 +445,7 @@ export function getJiraTicketDetails(data?: TicketData): TicketDetails | null {
         versions: data.fields && data.fields.versions && data.fields.versions.length ? data.fields.versions[0] : '',
         statusKey: data.fields && data.fields.status && data.fields.status.name,
         issueIcon: data.fields && data.fields.issuetype && data.fields.issuetype.iconUrl,
+        project: data.fields.project,
     };
     return ticketDetails;
 }

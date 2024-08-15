@@ -125,6 +125,11 @@ export default class BackendSelector extends React.PureComponent<Props, State> {
     };
 
     render = (): JSX.Element => {
+        let selectMenuTarget = document.body;
+        if ("target" in this.props){
+            selectMenuTarget = this.props.target;
+        }
+
         const serverError = this.state.error;
         let errComponent;
         if (serverError) {
@@ -180,7 +185,7 @@ export default class BackendSelector extends React.PureComponent<Props, State> {
                 isMulti={this.props.isMulti}
                 defaultOptions={true}
                 loadOptions={this.handleIssueSearchTermChange}
-                menuPortalTarget={document.body}
+                menuPortalTarget={selectMenuTarget}
                 menuPlacement='auto'
                 styles={getStyleForReactSelect(this.props.theme)}
             />

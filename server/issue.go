@@ -1123,7 +1123,6 @@ func (p *Plugin) GetIssueByKey(instanceID, mattermostUserID types.ID, issueKey s
 type UpdateIssue struct {
 	InstanceID string `json:"instance_id"`
 	IssueKey   string `json:"issue_key"`
-	Assignee   string `json:"assignee"`
 	Transition string `json:"transition"`
 }
 
@@ -1148,20 +1147,8 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 		return respondErr(w, http.StatusBadRequest, errors.New("issue_key must not be empty"))
 	}
 
-	if data.Transition == "" && data.Assignee == "" {
+	if data.Transition == "" {
 		return respondErr(w, http.StatusBadRequest, errors.New("Issue fields must not be empty"))
-	}
-
-	_, instance, _, errIn := p.getClient(types.ID(data.InstanceID), types.ID(mattermostUserID))
-	if errIn != nil {
-		return respondErr(w, http.StatusBadRequest, errors.WithMessage(errIn, "failed load instance"))
-	}
-
-	if data.Assignee != "" {
-		_, errAssignee := p.AssignIssue(instance, types.ID(mattermostUserID), data.IssueKey, data.Assignee, nil)
-		if errAssignee != nil {
-			return respondErr(w, http.StatusBadRequest, errors.WithMessage(errAssignee, "failed update assignee"))
-		}
 	}
 
 	if data.Transition != "" {
@@ -1169,7 +1156,7 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 			InstanceID:       types.ID(data.InstanceID),
 			mattermostUserID: types.ID(mattermostUserID),
 			IssueKey:         data.IssueKey,
-			ToState:          data.Assignee,
+			ToState:          data.Transition,
 		})
 		if errTransition != nil {
 			return respondErr(w, http.StatusBadRequest, errors.WithMessage(errTransition, "failed update transition"))

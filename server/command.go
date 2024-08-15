@@ -304,7 +304,7 @@ func createTransitionCommand(optInstance bool) *model.AutocompleteData {
 		"transition", "[Jira issue] [To state]", "Change the state of a Jira issue")
 
 	transition.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), false)
-	transition.AddDynamicListArgument("To state", makeAutocompleteRoute(routeIssueTransitions), false)
+	transition.AddDynamicListArgument("To state", makeAutocompleteRoute(routeCommandIssueTransitions), false)
 
 	withFlagInstance(transition, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
 	return transition
