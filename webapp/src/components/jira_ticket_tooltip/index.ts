@@ -11,7 +11,6 @@ const mapStateToProps = (state: GlobalState) => {
     return {
         connected: isUserConnected(state),
         connectedInstances: getUserConnectedInstances(state),
-        theme: JSON.parse(state.entities.preferences.myPreferences["theme--"].value)
     };
 };
 

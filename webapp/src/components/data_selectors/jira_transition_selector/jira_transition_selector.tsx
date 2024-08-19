@@ -15,7 +15,6 @@ type Props = BackendSelectorProps & {
 
 const JiraTransitionSelector = (props: Props) => {
     const [error, setError] = useState(null);
-    const [transitions, setTransitions] = useState<ReactSelectOption[]>([]);
 
     useEffect(() => {
         props.handleError(error);
@@ -45,11 +44,10 @@ const JiraTransitionSelector = (props: Props) => {
                 if (error) {
                     return;
                 }
-                const tr = data.map((transition) => ({
+                return filterTransitions(data.map((transition) => ({
                     value: transition.to.name,
                     label: transition.to.name,
-                }));
-                return filterTransitions(tr, inputValue);
+                })), inputValue);
             }).catch((e) => {
                 console.error(e);
                 setError(true);
