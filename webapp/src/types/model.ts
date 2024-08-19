@@ -115,6 +115,7 @@ export type JiraUser = {
     displayName: string;
     active: boolean;
     timeZone: string;
+    key: string;
 }
 
 export enum JiraFieldCustomTypeEnums {

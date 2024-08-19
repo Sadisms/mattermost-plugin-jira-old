@@ -171,6 +171,13 @@ export const getTransitionsByIssue = (params) => {
     };
 };
 
+export const getAvailableAssigneesByIssue = (params) => {
+    return async (dispatch, getState) => {
+        const url = getPluginServerRoute(getState()) + '/api/v2/issue-available-assignees';
+        return doFetchWithResponse(`${url}${buildQueryString(params)}`);
+    };
+};
+
 export const searchUsers = (params) => {
     return async (dispatch, getState) => {
         const url = getPluginServerRoute(getState()) + '/api/v2/get-search-users';
@@ -544,7 +551,7 @@ export const fetchIssueByKey = (issueKey: string, instanceID: string) => {
 };
 
 
-export function updateIssue(instanceID: string, issueKey: string, transition: string) {
+export function updateIssue(instanceID: string, issueKey: string, transition: string, assignee: string) {
     return async (dispatch, getState) => {
         const baseUrl = getPluginServerRoute(getState());
         try {
@@ -553,7 +560,8 @@ export function updateIssue(instanceID: string, issueKey: string, transition: st
                 body: JSON.stringify({
                     instance_id: instanceID,
                     issue_key: issueKey,
-                    transition
+                    transition,
+                    assignee
                 }),
             });
             return { data: response };

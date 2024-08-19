@@ -72,9 +72,9 @@ const (
 	routeParseIssuesInPost       = "/parse-issues-in-post"
 	routeCommandIssueTransitions = "/command-issue-transitions"
 
-	routeUpdateIssue = "/update-issue"
-
-	routeIssueTransitions = "/issue-transitions"
+	routeUpdateIssue             = "/update-issue"
+	routeIssueTransitions        = "/issue-transitions"
+	routeIssueAvailableAssignees = "/issue-available-assignees"
 )
 
 const routePrefixInstance = "instance"
@@ -172,6 +172,7 @@ func (p *Plugin) initializeRouter() {
 	autocompleteRouter.HandleFunc(routeCommandIssueTransitions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpCommandIssueTransitions)))).Methods(http.MethodGet)
 
 	apiRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.handleResponse(p.httpGetIssueTransitions))).Methods(http.MethodGet)
+	apiRouter.HandleFunc(routeIssueAvailableAssignees, p.checkAuth(p.handleResponse(p.httpGetIssueAvailableAssignees))).Methods(http.MethodGet)
 }
 
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
@@ -521,4 +522,41 @@ func (p *Plugin) httpGetIssueTransitions(w http.ResponseWriter, r *http.Request)
 	}
 
 	return respondJSON(w, transitions)
+}
+
+func (p *Plugin) httpGetIssueAvailableAssignees(w http.ResponseWriter, r *http.Request) (int, error) {
+	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
+
+	instanceID, err := validateQueryKey(r, "instance_id")
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	issueKey, err := validateQueryKey(r, "issue_key")
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	query := r.URL.Query().Get("q")
+
+	client, _, _, err := p.getClient(types.ID(instanceID), mattermostUserID)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	editMeta, err := client.getEditMeta(issueKey)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	if _, ok := editMeta.Fields["assignee"]; !ok {
+		return respondErr(w, http.StatusForbidden, fmt.Errorf("user does not have permission to change the assignee"))
+	}
+
+	jiraUsers, err := client.SearchUsersAssignableToIssue(issueKey, query, 10)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	return respondJSON(w, jiraUsers)
 }

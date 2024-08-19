@@ -1,10 +1,11 @@
-import React, { useState, useEffect, ReactNode } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Instance } from 'types/model';
 import { TicketData, TicketDetails } from 'types/tooltip';
 import './ticketStyle.scss';
 import { getJiraTicketDetails } from 'utils/jira_issue_metadata';
 import JiraTransitionSelector from "../data_selectors/jira_transition_selector";
 import DefaultAvatar from "../default_avatar/default_avatar";
+import JiraAssigneeSelector from "../data_selectors/jira_assignee_selector";
 
 export type Props = {
     href: string;
@@ -13,7 +14,7 @@ export type Props = {
     connectedInstances: Instance[];
     fetchIssueByKey: (issueKey: string, instanceID: string) => Promise<{ data?: TicketData }>;
     fetchTransitionsByIssue: (issueKey: string, instanceID: string) => Promise<{ data?: string[] }>;
-    updateIssue: (instanceID: string, issueKey: string, transition: string) => Promise<{ data?: string[] }>;
+    updateIssue: (instanceID: string, issueKey: string, transition: string | undefined, assignee: string | undefined) => Promise<{ data?: TicketData }>;
 };
 
 const isAssignedLabel = ' is assigned';
@@ -37,7 +38,9 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
     const [instanceId, setInstanceId] = useState<string>('');
     const [ticketDetails, setTicketDetails] = useState<TicketDetails | null>(null);
     const [isUpdateIssue, setIsUpdateIssue] = useState<boolean>(false);
+
     const [errorFetchTransitions, setErrorFetchTransitions] = useState<boolean>(false);
+    const [errorFetchAssignee, setErrorFetchAssignee] = useState<boolean>(false);
 
     const getIssueKey = () => {
         let ticketID = '';
@@ -107,11 +110,14 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
         return null;
     }
 
-    const handleUpdateIssue = async (transition: string) => {
+    const handleUpdateIssue = async (transition: string | undefined, assignee: string | undefined) => {
         setIsUpdateIssue(true);
         try {
-            await props.updateIssue(instanceId, ticketId, transition);
-            setTicketDetails({...ticketDetails, statusKey: transition});
+            const updateIssue = await props.updateIssue(instanceId, ticketId, transition, assignee);
+            const updatedTicketDetails = getJiraTicketDetails(updateIssue.data);
+            setTicketDetails(updatedTicketDetails);
+        } catch (e) {
+            console.error(e);
         } finally {
             setIsUpdateIssue(false);
         }
@@ -174,6 +180,40 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
             </div>
         );
     }
+
+    const assigneeTag = <>
+        {ticketDetails.assigneeAvatar ? (
+            <img
+                className='popover-footer__assignee-profile'
+                src={ticketDetails.assigneeAvatar}
+                alt='jira assignee profile'
+            />
+        ) : <DefaultAvatar />}
+        {ticketDetails.assigneeName ? (
+            <span>
+                <span className='popover-footer__assignee-name'>
+                    {ticketDetails.assigneeName}
+                </span>
+                <span>
+                    {isAssignedLabel}
+                </span>
+            </span>
+        ) : (
+            <span>
+                {unAssignedLabel}
+            </span>
+        )}
+    </>;
+
+    const sharedSelectorProps = {
+        issueKey: ticketDetails.ticketId.toUpperCase(),
+        instanceID: instanceId,
+        projectKey: ticketDetails.project.key,
+        isMulti: false,
+        theme: { ...props.theme, width: "200px" },
+        target: null,
+    };
+
     return (
         <div className='jira-issue-tooltip'>
             <div className='popover-header'>
@@ -203,6 +243,7 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
                     >
                         <h5>{ticketDetails.summary && ticketDetails.summary.substring(0, jiraTicketSummaryMaxLength)}</h5>
                     </a>
+                    {errorFetchTransitions && tagTicketStatus(ticketDetails.statusKey)}
                 </div>
                 <div className='popover-body__description'>
                     {ticketDetails.description && `${ticketDetails.description.substring(0, maxTicketDescriptionLength).trim()}${ticketDetails.description.length > maxTicketDescriptionLength ? '...' : ''}`}
@@ -220,46 +261,34 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
                     {fixVersionLabel(ticketDetails.versions)}
                     {renderLabelList(ticketDetails.labels)}
                 </div>
-                <div className='popover-footer'>
-                    {ticketDetails.assigneeAvatar ? (
-                        <img
-                            className='popover-footer__assignee-profile'
-                            src={ticketDetails.assigneeAvatar}
-                            alt='jira assignee profile'
-                        />
-                    ) : <DefaultAvatar />}
-                    {ticketDetails.assigneeName ? (
-                        <span>
-                            <span className='popover-footer__assignee-name'>
-                                {ticketDetails.assigneeName}
-                            </span>
-                            <span>
-                                {isAssignedLabel}
-                            </span>
-                        </span>
-                    ) : (
-                        <span>
-                            {unAssignedLabel}
-                        </span>
-                    )}
-                </div>
-                <div className='popover-body__actions'>
-                    {
-                        errorFetchTransitions ? tagTicketStatus(ticketDetails.statusKey) :
+                {errorFetchAssignee && (
+                    <div className='popover-footer'>
+                        {assigneeTag}
+                    </div>
+                )}
+                {(!errorFetchAssignee && !errorFetchAssignee) && (
+                    <div className='popover-body__actions'>
+                        {!errorFetchAssignee && (
+                            <JiraAssigneeSelector
+                                {...sharedSelectorProps}
+                                label="Assignee"
+                                value={ticketDetails.assigneeName}
+                                onChange={(v: string) => handleUpdateIssue("", v)}
+                                handleError={setErrorFetchAssignee}
+                            />
+                        )}
+
+                        {!errorFetchTransitions && (
                             <JiraTransitionSelector
+                                {...sharedSelectorProps}
                                 label="Transition"
-                                issueKey={ticketDetails.ticketId}
                                 value={ticketDetails.statusKey}
-                                instanceID={instanceId}
-                                projectKey={ticketDetails.project.key}
-                                isMulti={false}
-                                theme={{ ...props.theme, width: "200px" }}
-                                target={null}
-                                onChange={v => handleUpdateIssue(v)}
+                                onChange={(v: string) => handleUpdateIssue(v, "")}
                                 handleError={setErrorFetchTransitions}
                             />
-                    }
-                </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

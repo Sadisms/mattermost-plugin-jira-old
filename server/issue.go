@@ -1120,19 +1120,18 @@ func (p *Plugin) GetIssueByKey(instanceID, mattermostUserID types.ID, issueKey s
 	return issue, nil
 }
 
-type UpdateIssue struct {
-	InstanceID string `json:"instance_id"`
-	IssueKey   string `json:"issue_key"`
-	Transition string `json:"transition"`
-}
-
 func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, error) {
 	mattermostUserID := r.Header.Get(HeaderMattermostUserID)
 	if mattermostUserID == "" {
 		return respondErr(w, http.StatusUnauthorized, errors.New("not authorized"))
 	}
 
-	var data UpdateIssue
+	var data struct {
+		InstanceID string `json:"instance_id"`
+		IssueKey   string `json:"issue_key"`
+		Transition string `json:"transition"`
+		Assignee   string `json:"assignee"`
+	}
 	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
 		return respondErr(w, http.StatusBadRequest,
@@ -1147,8 +1146,13 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 		return respondErr(w, http.StatusBadRequest, errors.New("issue_key must not be empty"))
 	}
 
-	if data.Transition == "" {
+	if data.Transition == "" && data.Assignee == "" {
 		return respondErr(w, http.StatusBadRequest, errors.New("Issue fields must not be empty"))
+	}
+
+	client, _, _, err := p.getClient(types.ID(data.InstanceID), types.ID(mattermostUserID))
+	if err != nil {
+		return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed load instance"))
 	}
 
 	if data.Transition != "" {
@@ -1163,5 +1167,22 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 		}
 	}
 
-	return respondJSON(w, []string{"ok"})
+	if data.Assignee != "" {
+		user, err := client.GetUser(data.Assignee)
+		if err != nil {
+			return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed find assignee user"))
+		}
+
+		err = client.UpdateAssignee(data.IssueKey, user)
+		if err != nil {
+			return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed update assignee"))
+		}
+	}
+
+	updateIssue, err := client.GetIssue(data.IssueKey, nil)
+	if err != nil {
+		return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed get updated issue"))
+	}
+
+	return respondJSON(w, updateIssue)
 }

@@ -45,12 +45,14 @@ type RESTService interface {
 	RESTGet(endpoint string, params map[string]string, dest interface{}) error
 	RESTPostAttachment(issueID string, data io.Reader, name string) (*jira.Attachment, error)
 	createWorkLog(issueID string, record *jira.WorklogRecord) (*jira.WorklogRecord, *jira.Response, error)
+	getEditMeta(issueKey string) (*EditMeta, error)
 }
 
 // UserService is the interface for user-related APIs.
 type UserService interface {
 	GetSelf() (*jira.User, error)
 	GetUserGroups(connection *Connection) ([]*jira.UserGroup, error)
+	GetUser(userKey string) (*jira.User, error)
 }
 
 // ProjectService is the interface for project-related APIs.
@@ -111,6 +113,20 @@ func (client JiraClient) RESTGet(endpoint string, params map[string]string, dest
 		err = userFriendlyJiraError(resp, err)
 	}
 	return err
+}
+
+type EditMeta struct {
+	Fields map[string]FieldMeta `json:"fields"`
+}
+
+type FieldMeta struct {
+	Name string `json:"name"`
+}
+
+func (client JiraClient) getEditMeta(issueKey string) (*EditMeta, error) {
+	result := &EditMeta{}
+	err := client.RESTGet(fmt.Sprintf("2/issue/%s/editmeta", issueKey), nil, result)
+	return result, err
 }
 
 // RESTPostAttachment uploads an attachment to an issue. The reason for the custom implementation,
@@ -307,6 +323,15 @@ func (client JiraClient) GetSelf() (*jira.User, error) {
 		return nil, userFriendlyJiraError(resp, err)
 	}
 	return self, nil
+}
+
+func (client JiraClient) GetUser(userKey string) (*jira.User, error) {
+	user := &jira.User{}
+	err := client.RESTGet(fmt.Sprintf("2/user?key=%s", userKey), nil, user)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // MakeCreateIssueURL makes a URL that would take a browser to a pre-filled form
