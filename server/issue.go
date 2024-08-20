@@ -6,16 +6,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	jira "github.com/andygrunwald/go-jira"
+	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/pkg/errors"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-
-	jira "github.com/andygrunwald/go-jira"
-	"github.com/pkg/errors"
-
-	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/mattermost/mattermost-plugin-jira/server/utils"
 	"github.com/mattermost/mattermost-plugin-jira/server/utils/types"
@@ -452,23 +449,19 @@ func (p *Plugin) GetSearchIssues(instanceID, mattermostUserID types.ID, q, jqlSt
 
 	fields := strings.Split(fieldsStr, ",")
 
-	var wg sync.WaitGroup
+	var result []jira.Issue
 
-	var found []jira.Issue
-	wg.Add(1)
-	go func() {
-		found, _ = client.SearchIssues(jqlString, &jira.SearchOptions{
+	if reJiraIssueKey.MatchString(q) {
+		exact, _ := client.GetIssue(q, &jira.GetQueryOptions{Fields: fieldsStr})
+		result = append(result, *exact)
+
+	} else {
+		found, _ := client.SearchIssues(jqlString, &jira.SearchOptions{
 			MaxResults: limit,
 			Fields:     fields,
 		})
-
-		wg.Done()
-	}()
-
-	wg.Wait()
-
-	var result []jira.Issue
-	result = append(result, found...)
+		result = append(result, found...)
+	}
 
 	return result, nil
 }
