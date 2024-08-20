@@ -412,14 +412,45 @@ func validateQueryKey(r *http.Request, key string) (string, error) {
 	return value, nil
 }
 
+func join(elements []string, separator string) string {
+	switch len(elements) {
+	case 0:
+		return ""
+	case 1:
+		return elements[0]
+	}
+
+	result := elements[0]
+	for _, element := range elements[1:] {
+		result += separator + element
+	}
+	return result
+}
+
 func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (int, error) {
 	rootID, errRootID := validateQueryKey(r, "root_id")
 	if errRootID != nil {
 		return respondErr(w, http.StatusInternalServerError, errRootID)
 	}
 
+	userInput, err := validateQueryKey(r, "user_input")
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
 	mattermostUserID := types.ID(r.Header.Get("Mattermost-User-Id"))
-	info, err := p.GetUserInfo(mattermostUserID, nil)
+
+	instanceURL, _, err := p.parseCommandFlagInstanceURL(strings.Split(userInput, " "))
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	_, instanceID, err := p.ResolveUserInstanceURL(mattermostUserID, instanceURL)
+	if err != nil {
+		return respondErr(w, http.StatusInternalServerError, err)
+	}
+
+	client, _, _, err := p.getClient(types.ID(instanceID), mattermostUserID)
 	if err != nil {
 		return respondErr(w, http.StatusInternalServerError, err)
 	}
@@ -429,17 +460,32 @@ func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (
 		return respondErr(w, http.StatusInternalServerError, errPost)
 	}
 
+	lprojects, err := client.ListProjects("", -1, false)
+	if errPost != nil {
+		return respondErr(w, http.StatusInternalServerError, errPost)
+	}
+
+	var projectKyes []string
+	for _, project := range lprojects {
+		pkey := project.Key
+		projectKyes = append(projectKyes, pkey)
+	}
+
 	var keys []model.AutocompleteListItem
-	for _, instanceID := range info.Instances.IDs() {
-		urlBrowse := instanceID.String() + "/browse/"
-		re := regexp.MustCompile(`\Q` + urlBrowse + `\E([a-zA-Z0-9-_]+)`)
-		for _, match := range re.FindAllStringSubmatch(post.Message, -1) {
-			if len(match) > 1 {
-				keys = append(keys, model.AutocompleteListItem{
-					Item: match[1],
-				})
-			}
-		}
+
+	pattern := fmt.Sprintf(`(?i)\b(?:%s)-\d+\b`, join(projectKyes, "|"))
+	re := regexp.MustCompile(pattern)
+
+	matches := re.FindAllString(post.Message, -1)
+	uniqueMatches := make(map[string]bool)
+	for _, match := range matches {
+		uniqueMatches[match] = true
+	}
+
+	for match := range uniqueMatches {
+		keys = append(keys, model.AutocompleteListItem{
+			Item: match,
+		})
 	}
 
 	return respondJSON(w, keys)
