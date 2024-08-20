@@ -452,15 +452,7 @@ func (p *Plugin) GetSearchIssues(instanceID, mattermostUserID types.ID, q, jqlSt
 
 	fields := strings.Split(fieldsStr, ",")
 
-	var exact *jira.Issue
 	var wg sync.WaitGroup
-	if reJiraIssueKey.MatchString(q) {
-		wg.Add(1)
-		go func() {
-			exact, _ = client.GetIssue(q, &jira.GetQueryOptions{Fields: fieldsStr})
-			wg.Done()
-		}()
-	}
 
 	var found []jira.Issue
 	wg.Add(1)
@@ -475,11 +467,7 @@ func (p *Plugin) GetSearchIssues(instanceID, mattermostUserID types.ID, q, jqlSt
 
 	wg.Wait()
 
-	result := []jira.Issue{}
-	if exact != nil {
-		result = append(result, *exact)
-	}
-
+	var result []jira.Issue
 	result = append(result, found...)
 
 	return result, nil
