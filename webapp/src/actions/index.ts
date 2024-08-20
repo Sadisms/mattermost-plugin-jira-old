@@ -570,3 +570,10 @@ export function updateIssue(instanceID: string, issueKey: string, transition: st
         }
     };
 }
+
+export const fetchIssuesKeysByPost = (params) => {
+    return async (dispatch, getState) => {
+        const url = getPluginServerRoute(getState()) + '/autocomplete/parse-issues-in-post';
+        return doFetchWithResponse(`${url}${buildQueryString(params)}`);
+    };
+};

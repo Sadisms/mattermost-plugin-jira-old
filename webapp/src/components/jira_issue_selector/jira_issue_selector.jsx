@@ -27,7 +27,13 @@ export default class JiraIssueSelector extends Component {
     constructor(props) {
         super(props);
 
-        this.state = {invalid: false};
+        this.state = {
+            invalid: false,
+            serverError: null,
+            selectedValue: null,
+        };
+
+        this.debouncedSearchIssues = debounce(this.searchIssues, searchDebounceDelay);
     }
 
     componentDidMount() {
@@ -36,15 +42,24 @@ export default class JiraIssueSelector extends Component {
         }
     }
 
-    componentWillUnmount() {
-        if (this.props.removeValidate) {
-            this.props.removeValidate(this.isValid);
+    componentDidUpdate(prevProps) {
+        if (prevProps.value !== this.props.value && this.state.invalid) {
+            this.setState({invalid: false});
+        }
+
+        if (this.props.value && !this.state.selectedValue) {
+            this.handleIssueSearchTermChange(this.props.value).then((options) => {
+                const matchedOption = options.find(option => option.value === this.props.value);
+                this.setState({
+                    selectedValue: matchedOption || {value: this.props.value, label: this.props.value},
+                });
+            });
         }
     }
 
-    componentDidUpdate(prevProps, prevState) {
-        if (prevState.invalid && this.props.value !== prevProps.value) {
-            this.setState({invalid: false}); //eslint-disable-line react/no-did-update-set-state
+    componentWillUnmount() {
+        if (this.props.removeValidate) {
+            this.props.removeValidate(this.isValid);
         }
     }
 
@@ -65,16 +80,15 @@ export default class JiraIssueSelector extends Component {
                 label: `${issue.key}: ${issue.fields.summary}`,
             }));
         }).catch((e) => {
-            this.setState({error: e});
+            this.setState({serverError: e});
         });
     };
-
-    debouncedSearchIssues = debounce(this.searchIssues, searchDebounceDelay);
 
     onChange = (e) => {
         const value = e ? e.value : '';
         this.props.onChange(value);
-    }
+        this.setState({selectedValue: e});
+    };
 
     isValid = () => {
         if (!this.props.required) {
@@ -86,60 +100,42 @@ export default class JiraIssueSelector extends Component {
         return valid;
     };
 
-    render = () => {
-        const {error} = this.props;
-        const requiredStar = (
-            <span
-                className={'error-text'}
-                style={{marginLeft: '3px'}}
-            >
+    render() {
+        const {error, theme, required} = this.props;
+        const {serverError, selectedValue} = this.state;
+
+        const requiredStar = required ? (
+            <span className={'error-text'} style={{marginLeft: '3px'}}>
                 {'*'}
             </span>
-        );
+        ) : null;
 
-        let issueError = null;
-        if (error) {
-            issueError = (
-                <p className='help-text error-text'>
-                    <span>{error}</span>
-                </p>
-            );
-        }
+        const issueError = error ? (
+            <p className='help-text error-text'>
+                <span>{error}</span>
+            </p>
+        ) : null;
 
-        const serverError = this.state.error;
-        let errComponent;
-        if (this.state.error) {
-            errComponent = (
-                <p className='alert alert-danger'>
-                    <i
-                        className='fa fa-warning'
-                        title='Warning Icon'
-                    />
-                    <span> {serverError.toString()}</span>
-                </p>
-            );
-        }
+        const errComponent = serverError ? (
+            <p className='alert alert-danger'>
+                <i className='fa fa-warning' title='Warning Icon'/>
+                <span>{serverError.toString()}</span>
+            </p>
+        ) : null;
 
-        const requiredMsg = 'This field is required.';
-        let validationError = null;
-        if (this.props.required && this.state.invalid) {
-            validationError = (
-                <p className='help-text error-text'>
-                    <span>{requiredMsg}</span>
-                </p>
-            );
-        }
+        const validationError = required && this.state.invalid ? (
+            <p className='help-text error-text'>
+                <span>This field is required.</span>
+            </p>
+        ) : null;
 
         return (
             <div className={'form-group less'}>
                 {errComponent}
-                <label
-                    className={'control-label'}
-                    htmlFor={'issue'}
-                >
+                <label className={'control-label'} htmlFor={'issue'}>
                     {'Jira Issue'}
                 </label>
-                {this.props.required && requiredStar}
+                {requiredStar}
                 <AsyncSelect
                     name={'issue'}
                     placeholder={'Search for issues containing text...'}
@@ -148,11 +144,11 @@ export default class JiraIssueSelector extends Component {
                     disabled={false}
                     isMulti={false}
                     isClearable={true}
-                    defaultOptions={true}
                     loadOptions={this.handleIssueSearchTermChange}
                     menuPortalTarget={document.body}
                     menuPlacement='auto'
-                    styles={getStyleForReactSelect(this.props.theme)}
+                    styles={getStyleForReactSelect(theme)}
+                    value={selectedValue}
                 />
                 {validationError}
                 {issueError}
