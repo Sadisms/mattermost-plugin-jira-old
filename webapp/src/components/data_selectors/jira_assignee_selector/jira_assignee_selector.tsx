@@ -15,10 +15,21 @@ type Props = BackendSelectorProps & {
 
 const JiraAssigneeSelector = (props: Props) => {
     const [error, setError] = useState(null);
+    const [value, setValue] = useState(null);
 
     useEffect(() => {
         props.handleError(error);
     }, [error]);
+
+    useEffect(() => {
+        if (props.value){
+            getAssigneeByIssue(props.value)
+                .then(v => {
+                    if (v && v.length > 0) setValue(v[0].label);
+                })
+                .catch(e => console.error(e));
+        }
+    }, [props.value]);
 
     const allAssigneesByIssue = async (): Promise<ReactSelectOption[]> => {
         if (!props.value || (props.isMulti && !props.value.length)) {
@@ -72,6 +83,7 @@ const JiraAssigneeSelector = (props: Props) => {
             {...props}
             fetchInitialSelectedValues={allAssigneesByIssue}
             search={getAssigneeByIssue}
+            value={value}
         />
     );
 }
