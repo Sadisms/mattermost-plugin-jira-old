@@ -169,7 +169,7 @@ func (p *Plugin) initializeRouter() {
 	p.router.HandleFunc(routeGetAllSubscriptions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.getAllSubscriptions)))).Methods(http.MethodGet)
 
 	autocompleteRouter.HandleFunc(routeParseIssuesInPost, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpParseIssuesInPost)))).Methods(http.MethodGet)
-	autocompleteRouter.HandleFunc(routeCommandIssueTransitions, p.checkAuth(p.checkIsAdmin(p.handleResponse(p.httpCommandIssueTransitions)))).Methods(http.MethodGet)
+	autocompleteRouter.HandleFunc(routeCommandIssueTransitions, p.checkAuth(p.handleResponse(p.httpCommandIssueTransitions))).Methods(http.MethodGet)
 
 	apiRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.handleResponse(p.httpGetIssueTransitions))).Methods(http.MethodGet)
 	apiRouter.HandleFunc(routeIssueAvailableAssignees, p.checkAuth(p.handleResponse(p.httpGetIssueAvailableAssignees))).Methods(http.MethodGet)
