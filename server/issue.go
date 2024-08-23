@@ -1137,14 +1137,9 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 	}
 
 	if data.Transition != "" {
-		_, errTransition := p.TransitionIssue(&InTransitionIssue{
-			InstanceID:       types.ID(data.InstanceID),
-			mattermostUserID: types.ID(mattermostUserID),
-			IssueKey:         data.IssueKey,
-			ToState:          data.Transition,
-		})
-		if errTransition != nil {
-			return respondErr(w, http.StatusBadRequest, errors.WithMessage(errTransition, "failed update transition"))
+		err = client.DoTransition(data.IssueKey, data.Transition)
+		if err != nil {
+			return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed update transition"))
 		}
 	}
 

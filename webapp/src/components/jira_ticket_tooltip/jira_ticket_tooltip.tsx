@@ -42,6 +42,8 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
     const [errorFetchTransitions, setErrorFetchTransitions] = useState<boolean>(false);
     const [errorFetchAssignee, setErrorFetchAssignee] = useState<boolean>(false);
 
+    const [error, setError] = useState<string>("");
+
     const getIssueKey = () => {
         let ticketID = '';
         let instanceID = '';
@@ -69,17 +71,24 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
         return null;
     }
 
-    const fetchIssue = async () => {
+    const fetchIssue = () => {
         const issueKey = getIssueKey();
         if (!issueKey) return;
 
         const { instanceID } = issueKey;
         if (!ticketDetails && props.show && ticketId) {
-            const res = await props.fetchIssueByKey(ticketId, instanceID);
-            const updatedTicketDetails = getJiraTicketDetails(res.data);
-            if (props.connected && updatedTicketDetails && updatedTicketDetails.ticketId.toUpperCase() === ticketId.toUpperCase()) {
-                setTicketDetails(updatedTicketDetails);
-            }
+            setError("");
+            props.fetchIssueByKey(ticketId, instanceID)
+                .then(res => {
+                    if (res.error){
+                        console.error(res.error);
+                        setError(res.error.message);
+                    }
+                    const updatedTicketDetails = getJiraTicketDetails(res.data);
+                    if (props.connected && updatedTicketDetails && updatedTicketDetails.ticketId.toUpperCase() === ticketId.toUpperCase()) {
+                        setTicketDetails(updatedTicketDetails);
+                    }
+                })
         }
     }
 
@@ -116,8 +125,10 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
             const updateIssue = await props.updateIssue(instanceId, ticketId, transition, assignee);
             const updatedTicketDetails = getJiraTicketDetails(updateIssue.data);
             setTicketDetails(updatedTicketDetails);
+            setError("");
         } catch (e) {
             console.error(e);
+            setError(e.message);
         } finally {
             setIsUpdateIssue(false);
         }
@@ -168,6 +179,24 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
         );
     }
 
+    if (!ticketDetails && error) {
+        return (
+            <div className='jira-issue-tooltip jira-issue-tooltip-loading'>
+                <p
+                    className='alert alert-danger'
+                    style={{width: "100%"}}
+                >
+                    <i
+                        className='fa fa-warning'
+                        title='Warning Icon'
+                    />
+                    <span>{error}</span>
+                </p>
+            </div>
+        );
+
+    }
+
     if (!ticketId || (!ticketDetails && !props.show)) return null;
 
     if (!ticketDetails || isUpdateIssue) {
@@ -210,7 +239,6 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
         instanceID: instanceId,
         projectKey: ticketDetails.project.key,
         isMulti: false,
-        theme: { ...props.theme, width: "200px" },
         target: null,
     };
 
@@ -275,9 +303,9 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
                                 value={ticketDetails.assigneeName}
                                 onChange={(v: string) => handleUpdateIssue("", v)}
                                 handleError={setErrorFetchAssignee}
+                                theme={{ ...props.theme, width: "200px" }}
                             />
                         )}
-
                         {!errorFetchTransitions && (
                             <JiraTransitionSelector
                                 {...sharedSelectorProps}
@@ -285,11 +313,24 @@ const TicketPopover: React.FC<Props> = (props: Props) => {
                                 value={ticketDetails.statusKey}
                                 onChange={(v: string) => handleUpdateIssue(v, "")}
                                 handleError={setErrorFetchTransitions}
+                                theme={{ ...props.theme, width: "200px", menuWidth: 'auto' }}
                             />
                         )}
                     </div>
                 )}
             </div>
+            {error && (
+                <p
+                    className='alert alert-danger'
+                    style={{width: "100%"}}
+                >
+                    <i
+                        className='fa fa-warning'
+                        title='Warning Icon'
+                    />
+                    <span>{error}</span>
+                </p>
+            )}
         </div>
     );
 }

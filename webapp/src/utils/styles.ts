@@ -107,6 +107,7 @@ export const getStyleForReactSelect = (theme) => {
             borderRadius: '0 0 2px 2px',
             boxShadow: changeOpacity(theme.centerChannelColor, 0.2) + ' 1px 3px 12px',
             marginTop: '4px',
+            width: theme.menuWidth
         }),
         input: (provided) => ({
             ...provided,
