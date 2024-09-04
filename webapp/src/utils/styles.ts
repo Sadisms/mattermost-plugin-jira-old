@@ -99,16 +99,22 @@ export const getStyleForReactSelect = (theme) => {
                 background: 'transparent',
             },
         }),
-        menu: (provided) => ({
-            ...provided,
-            color: theme.centerChannelColor,
-            background: theme.centerChannelBg,
-            border: '1px solid ' + changeOpacity(theme.centerChannelColor, 0.2),
-            borderRadius: '0 0 2px 2px',
-            boxShadow: changeOpacity(theme.centerChannelColor, 0.2) + ' 1px 3px 12px',
-            marginTop: '4px',
-            width: theme.menuWidth
-        }),
+        menu: (provided) => {
+            const styles = {
+                ...provided,
+                color: theme.centerChannelColor,
+                background: theme.centerChannelBg,
+                border: '1px solid ' + changeOpacity(theme.centerChannelColor, 0.2),
+                borderRadius: '0 0 2px 2px',
+                boxShadow: changeOpacity(theme.centerChannelColor, 0.2) + ' 1px 3px 12px',
+                marginTop: '4px',
+            };
+
+            if (theme.menuWidth)
+                styles.width =  theme.menuWidth;
+
+            return styles;
+        },
         input: (provided) => ({
             ...provided,
             color: theme.centerChannelColor,
