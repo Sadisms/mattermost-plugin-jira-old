@@ -113,8 +113,13 @@
                 "help_text": "Display subscription name in post when a subscription posts to a channel",
                 "placeholder": "",
                 "default": false
+            },
+            {
+                "display_name": "Backdoor allowed bots ids:",
+                "key": "ListBackdoorsBots",
+                "type": "text"
             }
         ]
     },
-    "version": "1.2.1"
+    "version": "1.2.2"
 }
