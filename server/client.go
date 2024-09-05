@@ -29,6 +29,8 @@ const autocompleteSearchRoute = "2/jql/autocompletedata/suggestions"
 const userSearchRoute = "2/user/assignable/search"
 const unrecognizedEndpoint = "_unrecognized"
 
+const DONE_STATUS_ID = "10001" // TODO костыль, харкод статуса, в теории не должен меньяься
+
 // Client is the combined interface for all upstream APIs and convenience methods.
 type Client interface {
 	RESTService
@@ -78,11 +80,13 @@ type IssueService interface {
 
 	AddAttachment(mmClient pluginapi.Client, issueKey, fileID string, maxSize utils.ByteSize) (mattermostName, jiraName, mime string, err error)
 	AddComment(issueKey string, comment *jira.Comment) (*jira.Comment, error)
-	DoTransition(issueKey, transitionID string) error
+	DoTransition(issueKey, transitionID, resolution string) error
 	GetCreateMetaInfo(api plugin.API, options *jira.GetQueryOptions) (*jira.CreateMetaInfo, error)
 	GetTransitions(issueKey string) ([]jira.Transition, error)
 	UpdateAssignee(issueKey string, user *jira.User) error
 	UpdateComment(issueKey string, comment *jira.Comment) (*jira.Comment, error)
+	getResolutions() ([]jira.Resolution, error)
+	getDoneTransition(issueKey string) (*jira.Transition, error)
 }
 
 // JiraClient is the common implementation of most Jira APIs, except those that are
@@ -284,8 +288,22 @@ func (client JiraClient) SearchAutoCompleteFields(params map[string]string) (*Au
 }
 
 // DoTransition executes a transition on an issue.
-func (client JiraClient) DoTransition(issueKey, transitionID string) error {
-	resp, err := client.Jira.Issue.DoTransition(issueKey, transitionID)
+func (client JiraClient) DoTransition(issueKey, transitionID, resolution string) error {
+	payload := jira.CreateTransitionPayload{
+		Transition: jira.TransitionPayload{
+			ID: transitionID,
+		},
+	}
+
+	if resolution != "" {
+		payload.Fields = jira.TransitionPayloadFields{
+			Resolution: &jira.Resolution{
+				Name: resolution,
+			},
+		}
+	}
+
+	resp, err := client.Jira.Issue.DoTransitionWithPayload(issueKey, payload)
 	if err != nil {
 		return userFriendlyJiraError(resp, err)
 	}
@@ -527,4 +545,27 @@ func userFriendlyJiraError(resp *jira.Response, err error) error {
 		return RESTError{errors.New(message), resp.StatusCode}
 	}
 	return RESTError{errors.New(message), 0}
+}
+
+func (client JiraClient) getResolutions() ([]jira.Resolution, error) {
+	resolutions, resp, err := client.Jira.Resolution.GetList()
+	if err != nil {
+		return nil, userFriendlyJiraError(resp, err)
+	}
+	return resolutions, nil
+}
+
+func (client JiraClient) getDoneTransition(issueKey string) (*jira.Transition, error) {
+	transitions, err := client.GetTransitions(issueKey)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, transition := range transitions {
+		if transition.To.ID == DONE_STATUS_ID {
+			return &transition, nil
+		}
+	}
+
+	return nil, nil
 }
