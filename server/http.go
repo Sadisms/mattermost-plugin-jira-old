@@ -428,9 +428,14 @@ func join(elements []string, separator string) string {
 }
 
 func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (int, error) {
+	var keys []model.AutocompleteListItem
+
 	rootID, errRootID := validateQueryKey(r, "root_id")
 	if errRootID != nil {
-		return respondErr(w, http.StatusInternalServerError, errRootID)
+		keys = append(keys, model.AutocompleteListItem{
+			HelpText: "Issue key",
+		})
+		return respondJSON(w, keys)
 	}
 
 	userInput, err := validateQueryKey(r, "user_input")
@@ -470,8 +475,6 @@ func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (
 		pkey := project.Key
 		projectKyes = append(projectKyes, pkey)
 	}
-
-	var keys []model.AutocompleteListItem
 
 	pattern := fmt.Sprintf(`(?i)\b(?:%s)-\d+\b`, join(projectKyes, "|"))
 	re := regexp.MustCompile(pattern)
