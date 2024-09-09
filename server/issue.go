@@ -952,6 +952,7 @@ type InTransitionIssue struct {
 	PostToChannelID  string   `json:"channel_id"`
 	IssueKey         string   `json:"issue_key"`
 	ToState          string   `json:"to_state"`
+	Resolution       string   `json:"resolution"`
 }
 
 func (p *Plugin) createNotificationPost(postToChannelID string, mattermostUserID string, msg string, conn *Connection, rootPostID string) error {
@@ -995,13 +996,47 @@ func (p *Plugin) TransitionIssue(in *InTransitionIssue) (string, error) {
 		return "", errors.New("you do not have the appropriate permissions to perform this action. Please contact your Jira administrator")
 	}
 
-	var transition jira.Transition
+	transition, err := p.findMatchingTransition(transitions, in.ToState)
+	if err != nil {
+		return "", err
+	}
+
+	resolution := ""
+	if in.Resolution != "" {
+		resolution, err = p.findMatchingResolution(client, in.Resolution)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	err = client.DoTransition(in.IssueKey, transition.ID, resolution)
+	if err != nil {
+		return "", err
+	}
+
+	msg := fmt.Sprintf("[%s](%v/browse/%v) transitioned to `%s`",
+		in.IssueKey, instance.GetJiraBaseURL(), in.IssueKey, transition.To.Name)
+	if in.Resolution != "" {
+		msg += fmt.Sprintf(" with resolution `%s`", resolution)
+	}
+
+	_, err = client.GetIssue(in.IssueKey, nil)
+	if err != nil {
+		return "", p.handleJiraError(err)
+	}
+
+	return msg, nil
+}
+
+// Вспомогательная функция для поиска подходящего перехода
+func (p *Plugin) findMatchingTransition(transitions []jira.Transition, state string) (jira.Transition, error) {
+	potentialState := strings.ToLower(state)
 	matchingStates := []string{}
 	availableStates := []string{}
+	var transition jira.Transition
 
-	potentialState := strings.ToLower(strings.Join(strings.Fields(in.ToState), ""))
 	for _, t := range transitions {
-		validState := strings.ToLower(strings.Join(strings.Fields(t.To.Name), ""))
+		validState := strings.ToLower(t.To.Name)
 		if strings.Contains(validState, potentialState) {
 			matchingStates = append(matchingStates, t.To.Name)
 			transition = t
@@ -1011,40 +1046,57 @@ func (p *Plugin) TransitionIssue(in *InTransitionIssue) (string, error) {
 
 	switch len(matchingStates) {
 	case 0:
-		return "", errors.Errorf("%q is not a valid state. Please use one of: %q",
-			in.ToState, strings.Join(availableStates, ", "))
-
+		return transition, errors.Errorf("%q is not a valid state. Please use one of: %q",
+			state, strings.Join(availableStates, ", "))
 	case 1:
-		// proceed
-
+		return transition, nil
 	default:
-		return "", errors.Errorf("please be more specific, %q matched several states: %q",
-			in.ToState, strings.Join(matchingStates, ", "))
+		return transition, errors.Errorf("please be more specific, %q matched several states: %q",
+			state, strings.Join(matchingStates, ", "))
 	}
+}
 
-	err = client.DoTransition(in.IssueKey, transition.ID)
+// Вспомогательная функция для поиска подходящей резолюции
+func (p *Plugin) findMatchingResolution(client Client, resolution string) (string, error) {
+	resolutions, err := client.getResolutions()
 	if err != nil {
 		return "", err
 	}
 
-	msg := fmt.Sprintf("[%s](%v/browse/%v) transitioned to `%s`",
-		in.IssueKey, instance.GetJiraBaseURL(), in.IssueKey, transition.To.Name)
+	potentialResolution := strings.ToLower(resolution)
+	matchingResolutions := []string{}
+	availableResolutions := []string{}
 
-	_, err = client.GetIssue(in.IssueKey, nil)
-	if err != nil {
-		switch StatusCode(err) {
-		case http.StatusNotFound:
-			return "", errors.New("we couldn't find the issue key, or you do not have the appropriate permissions to view the issue. Please try again or contact your Jira administrator")
-
-		case http.StatusUnauthorized:
-			return "", errors.New("you do not have the appropriate permissions to view the issue. Please contact your Jira administrator")
-
-		default:
-			return "", errors.WithMessage(err, "request to Jira failed")
+	for _, r := range resolutions {
+		validResolution := strings.ToLower(r.Name)
+		if strings.Contains(validResolution, potentialResolution) {
+			matchingResolutions = append(matchingResolutions, r.Name)
 		}
+		availableResolutions = append(availableResolutions, r.Name)
 	}
 
-	return msg, nil
+	switch len(matchingResolutions) {
+	case 0:
+		return "", errors.Errorf("%q is not a valid resolution. Please use one of: %q",
+			resolution, strings.Join(availableResolutions, ", "))
+	case 1:
+		return matchingResolutions[0], nil
+	default:
+		return "", errors.Errorf("please be more specific, %q matched several resolutions: %q",
+			resolution, strings.Join(matchingResolutions, ", "))
+	}
+}
+
+// Вспомогательная функция для обработки ошибок Jira
+func (p *Plugin) handleJiraError(err error) error {
+	switch StatusCode(err) {
+	case http.StatusNotFound:
+		return errors.New("we couldn't find the issue key, or you do not have the appropriate permissions to view the issue. Please try again or contact your Jira administrator")
+	case http.StatusUnauthorized:
+		return errors.New("you do not have the appropriate permissions to view the issue. Please contact your Jira administrator")
+	default:
+		return errors.WithMessage(err, "request to Jira failed")
+	}
 }
 
 func (p *Plugin) getClient(instanceID, mattermostUserID types.ID) (Client, Instance, *Connection, error) {
@@ -1137,7 +1189,7 @@ func (p *Plugin) httpUpdateIssue(w http.ResponseWriter, r *http.Request) (int, e
 	}
 
 	if data.Transition != "" {
-		err = client.DoTransition(data.IssueKey, data.Transition)
+		err = client.DoTransition(data.IssueKey, data.Transition, "")
 		if err != nil {
 			return respondErr(w, http.StatusBadRequest, errors.WithMessage(err, "failed update transition"))
 		}

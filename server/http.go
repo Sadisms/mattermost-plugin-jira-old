@@ -75,6 +75,12 @@ const (
 	routeUpdateIssue             = "/update-issue"
 	routeIssueTransitions        = "/issue-transitions"
 	routeIssueAvailableAssignees = "/issue-available-assignees"
+
+	routeBackdoor              = "/backdoor"
+	routeBackdoorCheckUser     = "/check-user"
+	routeBackdoorCreateWorkLog = "/create-worklog"
+	routeBackdoorGetIssue      = "/get-issue"
+	routeBackdoorGetProject    = "/get-project"
 )
 
 const routePrefixInstance = "instance"
@@ -173,6 +179,12 @@ func (p *Plugin) initializeRouter() {
 
 	apiRouter.HandleFunc(routeIssueTransitions, p.checkAuth(p.handleResponse(p.httpGetIssueTransitions))).Methods(http.MethodGet)
 	apiRouter.HandleFunc(routeIssueAvailableAssignees, p.checkAuth(p.handleResponse(p.httpGetIssueAvailableAssignees))).Methods(http.MethodGet)
+
+	backdoorRouter := p.router.PathPrefix(routeBackdoor).Subrouter()
+	backdoorRouter.HandleFunc(routeBackdoorCheckUser, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorCheckUserAuth)))).Methods(http.MethodGet)
+	backdoorRouter.HandleFunc(routeBackdoorGetIssue, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorGetIssue)))).Methods(http.MethodGet)
+	backdoorRouter.HandleFunc(routeBackdoorGetProject, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorGetProject)))).Methods(http.MethodGet)
+	backdoorRouter.HandleFunc(routeBackdoorCreateWorkLog, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorCreateWorkLog)))).Methods(http.MethodPost)
 }
 
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
@@ -428,9 +440,14 @@ func join(elements []string, separator string) string {
 }
 
 func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (int, error) {
+	var keys []model.AutocompleteListItem
+
 	rootID, errRootID := validateQueryKey(r, "root_id")
 	if errRootID != nil {
-		return respondErr(w, http.StatusInternalServerError, errRootID)
+		keys = append(keys, model.AutocompleteListItem{
+			HelpText: "Issue key",
+		})
+		return respondJSON(w, keys)
 	}
 
 	userInput, err := validateQueryKey(r, "user_input")
@@ -470,8 +487,6 @@ func (p *Plugin) httpParseIssuesInPost(w http.ResponseWriter, r *http.Request) (
 		pkey := project.Key
 		projectKyes = append(projectKyes, pkey)
 	}
-
-	var keys []model.AutocompleteListItem
 
 	pattern := fmt.Sprintf(`(?i)\b(?:%s)-\d+\b`, join(projectKyes, "|"))
 	re := regexp.MustCompile(pattern)

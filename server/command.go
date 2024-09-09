@@ -59,6 +59,8 @@ var jiraCommandHandler = CommandHandler{
 		"setup":                        executeSetup,
 		"worklog":                      executeWorkLog,
 		"issue/worklog":                executeWorkLog,
+		"resolution":                   executeResolution,
+		"issue/resolution":             executeResolution,
 	},
 	defaultHandler: executeJiraDefault,
 }
@@ -74,6 +76,7 @@ const commonHelpText = "\n" +
 	"* `/jira [issue] unassign [issue-key]` - Unassign the Jira issue\n" +
 	"* `/jira [issue] view [issue-key]` - View the details of a specific Jira issue\n" +
 	"* `/jira [issue] worklog [issue-key] [minutes]` - Record labour costs in minutes per issue\n" +
+	"* `/jira [issue] resolution [issue-key] [resolution]` - Move issue to Done status with a resolution.\n" +
 	"* `/jira help` - Launch the Jira plugin command line help syntax\n" +
 	"* `/jira me` - Display information about the current user\n" +
 	"* `/jira about` - Display build info\n" +
@@ -151,6 +154,7 @@ func addSubCommands(jira *model.AutocompleteData, optInstance bool) {
 	jira.AddCommand(createAssignCommand(optInstance))
 	jira.AddCommand(createUnassignCommand(optInstance))
 	jira.AddCommand(createWorkLogCommand(optInstance))
+	jira.AddCommand(createResolutionCommand(optInstance))
 
 	// Generic commands
 	jira.AddCommand(createIssueCommand(optInstance))
@@ -220,6 +224,7 @@ func createIssueCommand(optInstance bool) *model.AutocompleteData {
 	issue.AddCommand(createAssignCommand(optInstance))
 	issue.AddCommand(createUnassignCommand(optInstance))
 	issue.AddCommand(createWorkLogCommand(optInstance))
+	issue.AddCommand(createResolutionCommand(optInstance))
 	return issue
 }
 
@@ -1350,4 +1355,65 @@ func (p *Plugin) respondCommandTemplate(commandArgs *model.CommandArgs, path str
 		p.responsef(commandArgs, "failed to format results: %v", err)
 	}
 	return p.responsef(commandArgs, bb.String())
+}
+
+func createResolutionCommand(optInstance bool) *model.AutocompleteData {
+	resolution := model.NewAutocompleteData(
+		"resolution", "[Jira issue] [Resolution]", "Change to done the state of a Jira issue with resolution")
+
+	resolution.AddDynamicListArgument("Jira issue", makeAutocompleteRoute(routeParseIssuesInPost), true)
+	resolution.AddTextArgument("Resolution", "", "")
+
+	withFlagInstance(resolution, optInstance, makeAutocompleteRoute(routeAutocompleteInstalledInstanceWithAlias))
+	return resolution
+}
+
+func executeResolution(p *Plugin, c *plugin.Context, header *model.CommandArgs, args ...string) *model.CommandResponse {
+	instanceURL, args, err := p.parseCommandFlagInstanceURL(args)
+	if err != nil {
+		return p.responsef(header, "Failed to load your connection to Jira. Error: %v.", err)
+	}
+	if len(args) < 2 {
+		return p.help(header)
+	}
+	issueKey := strings.ToUpper(args[0])
+	resolution := strings.Join(args[1:], " ")
+	mattermostUserID := types.ID(header.UserId)
+
+	_, instanceID, err := p.ResolveUserInstanceURL(mattermostUserID, instanceURL)
+	if err != nil {
+		return p.responsef(header, "Failed to identify Jira instance %s. Error: %v.", instanceURL, err)
+	}
+
+	client, _, _, err := p.getClient(instanceID, mattermostUserID)
+	if err != nil {
+		return p.responsef(header, "Failed load instance client. Error: %v.", instanceURL, err)
+	}
+
+	doneTransition, err := client.getDoneTransition(issueKey)
+	if err != nil {
+		return p.responsef(header, "Failed find done transition. Error: %v.", instanceURL, err)
+	}
+
+	msg, err := p.TransitionIssue(&InTransitionIssue{
+		InstanceID:       instanceID,
+		mattermostUserID: mattermostUserID,
+		IssueKey:         issueKey,
+		ToState:          doneTransition.To.Name,
+		Resolution:       resolution,
+	})
+	if err != nil {
+		return p.responsef(header, err.Error())
+	}
+
+	_, _, conn, err := p.getClient(instanceID, types.ID(header.UserId))
+	if err == nil {
+		errNotification := p.createNotificationPost(header.ChannelId, header.UserId, msg, conn, header.RootId)
+		if errNotification == nil {
+			return &model.CommandResponse{}
+		}
+	}
+
+	return p.responsef(header, msg)
+
 }
