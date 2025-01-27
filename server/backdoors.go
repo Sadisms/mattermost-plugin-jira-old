@@ -82,16 +82,16 @@ func (p *Plugin) httpBackdoorCreateWorkLog(w http.ResponseWriter, r *http.Reques
 func (p *Plugin) httpBackdoorGetIssue(w http.ResponseWriter, r *http.Request) (int, error) {
 	issueKey, err := validateQueryKey(r, "issue_key")
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusBadRequest, err)
 	}
 	client, err := p.getBackdoorClient(r)
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusUnauthorized, err)
 	}
 
 	issue, err := client.GetIssue(issueKey, nil)
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusNotFound, err)
 	}
 
 	return respondJSON(w, issue)
