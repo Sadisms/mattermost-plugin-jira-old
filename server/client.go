@@ -87,6 +87,7 @@ type IssueService interface {
 	UpdateComment(issueKey string, comment *jira.Comment) (*jira.Comment, error)
 	getResolutions() ([]jira.Resolution, error)
 	getDoneTransition(issueKey string) (*jira.Transition, error)
+	HasWorkLogPermission(issueKey string) (bool, error)
 }
 
 // JiraClient is the common implementation of most Jira APIs, except those that are
@@ -568,4 +569,17 @@ func (client JiraClient) getDoneTransition(issueKey string) (*jira.Transition, e
 	}
 
 	return nil, nil
+}
+
+func (client JiraClient) HasWorkLogPermission(issueKey string) (bool, error) {
+	editMeta, err := client.getEditMeta(issueKey)
+	if err != nil {
+		return false, err
+	}
+
+	if _, ok := editMeta.Fields["timetracking"]; ok {
+		return true, nil
+	}
+
+	return false, nil
 }

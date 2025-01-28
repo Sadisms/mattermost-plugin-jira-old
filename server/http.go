@@ -80,6 +80,7 @@ const (
 	routeBackdoorCheckUser     = "/check-user"
 	routeBackdoorCreateWorkLog = "/create-worklog"
 	routeBackdoorGetIssue      = "/get-issue"
+	routeBackdoorCheckWorklog  = "/check-worklog"
 	routeBackdoorGetProject    = "/get-project"
 )
 
@@ -183,6 +184,7 @@ func (p *Plugin) initializeRouter() {
 	backdoorRouter := p.router.PathPrefix(routeBackdoor).Subrouter()
 	backdoorRouter.HandleFunc(routeBackdoorCheckUser, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorCheckUserAuth)))).Methods(http.MethodGet)
 	backdoorRouter.HandleFunc(routeBackdoorGetIssue, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorGetIssue)))).Methods(http.MethodGet)
+	backdoorRouter.HandleFunc(routeBackdoorCheckWorklog, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorCheckCreateWorklogIssue)))).Methods(http.MethodGet)
 	backdoorRouter.HandleFunc(routeBackdoorGetProject, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorGetProject)))).Methods(http.MethodGet)
 	backdoorRouter.HandleFunc(routeBackdoorCreateWorkLog, p.checkAuth(p.checkIsAuthBackdoors(p.handleResponse(p.httpBackdoorCreateWorkLog)))).Methods(http.MethodPost)
 }

@@ -82,16 +82,16 @@ func (p *Plugin) httpBackdoorCreateWorkLog(w http.ResponseWriter, r *http.Reques
 func (p *Plugin) httpBackdoorGetIssue(w http.ResponseWriter, r *http.Request) (int, error) {
 	issueKey, err := validateQueryKey(r, "issue_key")
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusBadRequest, err)
 	}
 	client, err := p.getBackdoorClient(r)
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusUnauthorized, err)
 	}
 
 	issue, err := client.GetIssue(issueKey, nil)
 	if err != nil {
-		return respondErr(w, http.StatusInternalServerError, err)
+		return respondErr(w, http.StatusNotFound, err)
 	}
 
 	return respondJSON(w, issue)
@@ -113,4 +113,26 @@ func (p *Plugin) httpBackdoorGetProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	return respondJSON(w, project)
+}
+
+func (p *Plugin) httpBackdoorCheckCreateWorklogIssue(w http.ResponseWriter, r *http.Request) (int, error) {
+	issueKey, err := validateQueryKey(r, "issue_key")
+	if err != nil {
+		return respondErr(w, http.StatusBadRequest, err)
+	}
+	client, err := p.getBackdoorClient(r)
+	if err != nil {
+		return respondErr(w, http.StatusUnauthorized, err)
+	}
+
+	permission, err := client.HasWorkLogPermission(issueKey)
+	if err != nil {
+		return respondErr(w, http.StatusNotFound, err)
+	}
+
+	if !permission {
+		return respondErr(w, http.StatusNotFound, errors.New("user does not have permission to create worklog"))
+	}
+
+	return respondJSON(w, []string{"OK"})
 }
