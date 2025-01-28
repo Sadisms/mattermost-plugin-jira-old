@@ -71,12 +71,6 @@ func (p *Plugin) httpACInstalled(w http.ResponseWriter, r *http.Request) (int, e
 		return respondErr(w, http.StatusInternalServerError, err)
 	}
 
-	// Setup autolink
-	err = p.AddAutolinksForCloudInstance(newInstance)
-	if err != nil {
-		p.client.Log.Info("could not install autolinks for cloud instance", "instance", ci.BaseURL, "err", err)
-	}
-
 	_ = p.setupFlow.ForUser(ci.SetupWizardUserID).Go(stepInstalledJiraApp)
 
 	return respondJSON(w, []string{"OK"})

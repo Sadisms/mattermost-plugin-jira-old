@@ -26,9 +26,6 @@ import (
 	"github.com/mattermost/mattermost/server/public/pluginapi"
 	"github.com/mattermost/mattermost/server/public/pluginapi/experimental/flow"
 
-	"github.com/mattermost/mattermost-plugin-autolink/server/autolink"
-	"github.com/mattermost/mattermost-plugin-autolink/server/autolinkclient"
-
 	"github.com/mattermost/mattermost-plugin-jira/server/enterprise"
 	"github.com/mattermost/mattermost-plugin-jira/server/telemetry"
 	"github.com/mattermost/mattermost-plugin-jira/server/utils"
@@ -298,83 +295,7 @@ func (p *Plugin) OnActivate() error {
 
 	p.enterpriseChecker = enterprise.NewEnterpriseChecker(p.API)
 
-	go func() {
-		for _, url := range instances.IDs() {
-			var instance Instance
-			instance, err = p.instanceStore.LoadInstance(url)
-			if err != nil {
-				continue
-			}
-
-			ci, ok := instance.(*cloudInstance)
-			if !ok {
-				p.client.Log.Info("only cloud instances supported for autolink", "err", err)
-				continue
-			}
-			var status *model.PluginStatus
-			status, err = p.client.Plugin.GetPluginStatus(autolinkPluginID)
-			if err != nil {
-				p.client.Log.Warn("OnActivate: Autolink plugin unavailable. API returned error", "error", err.Error())
-				continue
-			}
-			if status.State != model.PluginStateRunning {
-				p.client.Log.Warn("OnActivate: Autolink plugin unavailable. Plugin is not running", "status", status)
-				continue
-			}
-
-			if err = p.AddAutolinksForCloudInstance(ci); err != nil {
-				p.client.Log.Info("could not install autolinks for cloud instance", "instance", ci.BaseURL, "err", err)
-				continue
-			}
-		}
-	}()
-
 	p.initializeTelemetry()
-
-	return nil
-}
-
-func (p *Plugin) AddAutolinksForCloudInstance(ci *cloudInstance) error {
-	client, err := ci.getClientForBot()
-	if err != nil {
-		return fmt.Errorf("unable to get jira client for server: %w", err)
-	}
-
-	plist, err := jiraCloudClient{JiraClient{Jira: client}}.ListProjects("", -1, false)
-	if err != nil {
-		return fmt.Errorf("unable to get project keys: %w", err)
-	}
-
-	for _, proj := range plist {
-		key := proj.Key
-		err = p.AddAutolinks(key, ci.BaseURL)
-	}
-	if err != nil {
-		return fmt.Errorf("some keys were not installed: %w", err)
-	}
-
-	return nil
-}
-
-func (p *Plugin) AddAutolinks(key, baseURL string) error {
-	baseURL = strings.TrimRight(baseURL, "/")
-	installList := []autolink.Autolink{
-		{
-			Name:     key + " key to link for " + baseURL,
-			Pattern:  `(` + key + `)(-)(?P<jira_id>\d+)`,
-			Template: `[` + key + `-${jira_id}](` + baseURL + `/browse/` + key + `-${jira_id})`,
-		},
-		{
-			Name:     key + " link to key for " + baseURL,
-			Pattern:  `(` + strings.ReplaceAll(baseURL, ".", `\.`) + `/browse/)(` + key + `)(-)(?P<jira_id>\d+)`,
-			Template: `[` + key + `-${jira_id}](` + baseURL + `/browse/` + key + `-${jira_id})`,
-		},
-	}
-
-	client := autolinkclient.NewClientPlugin(p.API)
-	if err := client.Add(installList...); err != nil {
-		return fmt.Errorf("unable to add autolinks: %w", err)
-	}
 
 	return nil
 }
