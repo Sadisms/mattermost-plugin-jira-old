@@ -127,7 +127,7 @@ func (p *Plugin) httpBackdoorCheckCreateWorklogIssue(w http.ResponseWriter, r *h
 
 	permission, err := client.HasWorkLogPermission(issueKey)
 	if err != nil {
-		return respondErr(w, http.StatusBadRequest, err)
+		return respondErr(w, http.StatusNotFound, err)
 	}
 
 	if !permission {
